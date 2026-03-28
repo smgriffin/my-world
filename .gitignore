@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local server logs
+*.log
+
+# Exported snapshots (generated files)
+my-world-snapshot.html
+my-world-export.json

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My World</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+
+  <!-- Dexie.js (IndexedDB) -->
+  <script src="https://unpkg.com/dexie@3/dist/dexie.js"></script>
+
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+  <!-- Canvas -->
+  <canvas id="canvas"></canvas>
+
+  <!-- Floating action buttons -->
+  <div id="fab">
+    <button id="sound-btn" title="Toggle sound (M)">♪</button>
+    <button id="add-btn" title="Add entry (A)">+</button>
+    <button id="cards-btn" title="Cards: hover only (C)">▤</button>
+    <button id="help-btn" aria-label="Keyboard shortcuts">?
+      <div id="hotkey-tooltip" role="tooltip">
+        <div class="hotkey-row"><kbd>A</kbd><span>Add entry</span></div>
+        <div class="hotkey-row"><kbd>L</kbd><span>Toggle list</span></div>
+        <div class="hotkey-row"><kbd>/</kbd><span>Search</span></div>
+        <div class="hotkey-row"><kbd>M</kbd><span>Toggle sound</span></div>
+        <div class="hotkey-row"><kbd>Shift E</kbd><span>Export JSON</span></div>
+        <div class="hotkey-row"><kbd>Shift H</kbd><span>Export HTML</span></div>
+        <div class="hotkey-row"><kbd>Shift I</kbd><span>Import JSON</span></div>
+        <div class="hotkey-row"><kbd>Esc</kbd><span>Close / collapse</span></div>
+        <div class="hotkey-row"><kbd>Scroll</kbd><span>Zoom</span></div>
+        <div class="hotkey-row"><kbd>Drag</kbd><span>Pan</span></div>
+        <div class="hotkey-row"><kbd>C</kbd><span>Toggle cards</span></div>
+        <div class="hotkey-row"><kbd>Double-click</kbd><span>Zoom in</span></div>
+      </div>
+    </button>
+  </div>
+
+  <!-- Card layer — positioned cards above markers -->
+  <div id="card-layer"></div>
+
+  <!-- Lightbox -->
+  <div id="lightbox" aria-hidden="true">
+    <button id="lightbox-close" aria-label="Close">×</button>
+    <img id="lightbox-img" src="" alt="">
+  </div>
+
+  <!-- List panel (collapsed by default, toggle with L) -->
+  <aside id="list-panel" class="collapsed">
+    <div id="list-header">
+      <span>Entries</span>
+      <input type="text" id="search-input" placeholder="Search…" autocomplete="off" spellcheck="false">
+    </div>
+    <ul id="list-items"></ul>
+  </aside>
+
+  <!-- Hidden inputs for import -->
+  <input type="file" id="import-input" accept=".json" style="display:none">
+
+  <!-- Modal -->
+  <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div id="modal-box">
+      <div id="modal-header">
+        <h2 id="modal-title">Add Entry</h2>
+        <button id="modal-close" aria-label="Close">×</button>
+      </div>
+
+      <form id="modal-form" autocomplete="off">
+
+        <div class="field">
+          <label for="f-title">Title</label>
+          <input type="text" id="f-title" name="title" required placeholder="Event or person name">
+        </div>
+
+        <div class="field">
+          <label for="f-from-value">From</label>
+          <div class="date-row">
+            <input type="number" id="f-from-value" name="fromValue" required min="0" step="any" placeholder="e.g. 1969">
+            <select id="f-from-unit" name="fromUnit">
+              <option value="CE">CE</option>
+              <option value="BCE">BCE</option>
+              <option value="ya">years ago</option>
+              <option value="kya">thousand years ago</option>
+              <option value="mya">million years ago</option>
+              <option value="bya">billion years ago</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="f-to-value">To <span class="label-optional">(optional — for spans)</span></label>
+          <div class="date-row">
+            <input type="number" id="f-to-value" name="toValue" min="0" step="any" placeholder="Leave blank for a point event">
+            <select id="f-to-unit" name="toUnit">
+              <option value="CE">CE</option>
+              <option value="BCE">BCE</option>
+              <option value="ya">years ago</option>
+              <option value="kya">thousand years ago</option>
+              <option value="mya">million years ago</option>
+              <option value="bya">billion years ago</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="f-type">Source Type</label>
+            <select id="f-type" name="type">
+              <option value="historical">Historical</option>
+              <option value="personal">Personal</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-entryType">Entry Type</label>
+            <select id="f-entryType" name="entryType">
+              <option value="Event">Event</option>
+              <option value="Person">Person</option>
+              <option value="Source">Source</option>
+              <option value="Location">Location</option>
+              <option value="Claim">Claim</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="f-summary">Summary</label>
+          <textarea id="f-summary" name="summary" placeholder="Brief description…"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="f-notes">Notes</label>
+          <textarea id="f-notes" name="notes" placeholder="Personal notes, context, questions…"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="f-tags">Tags</label>
+          <input type="text" id="f-tags" name="tags" placeholder="Comma-separated: cosmology, origin, earth">
+        </div>
+
+        <div class="field">
+          <label>Connections <span class="label-optional">(links to other entries)</span></label>
+          <div id="connection-search-wrap">
+            <input type="text" id="connection-search" placeholder="Search entries to connect…" autocomplete="off" spellcheck="false">
+            <ul id="connection-suggestions"></ul>
+          </div>
+          <div id="connection-chips"></div>
+        </div>
+
+        <div class="field">
+          <label>Photos &amp; Files</label>
+          <div id="attachment-zone">
+            <span class="attachment-hint">Drop files here or <button type="button" id="attachment-browse">browse</button></span>
+            <input type="file" id="attachment-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.json" style="display:none">
+          </div>
+          <div id="attachment-grid"></div>
+        </div>
+
+        <div id="modal-actions">
+          <button type="submit" class="btn-primary">Save</button>
+          <button type="button" class="btn-ghost" id="modal-cancel-btn">Cancel</button>
+          <button type="button" class="btn-danger" id="modal-delete" style="display:none;">Delete</button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- App scripts (load order matters) -->
+  <script src="js/timeline.js"></script>
+  <script src="js/background.js"></script>
+  <script src="js/entries.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/ui.js"></script>
+
+  <script>
+    (async () => {
+      const canvas = document.getElementById('canvas');
+
+      function sizeCanvas() {
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+        Timeline.resize(window.innerWidth, window.innerHeight);
+      }
+      sizeCanvas();
+      window.addEventListener('resize', sizeCanvas);
+
+      Timeline.attach(canvas, (screenX, screenY) => {
+        const entry = Timeline.hitTest(Render.getEntries(), screenX);
+        if (entry) UI.openEditModal(entry);
+      });
+
+      Render.init(canvas);
+      await Entries.seedIfEmpty();
+      UI.init();
+      await UI.refresh();
+      Sound.attachAutostart();
+
+      document.getElementById('modal-cancel-btn').addEventListener('click', () => {
+        document.getElementById('modal').classList.remove('open');
+      });
+    })();
+  </script>
+
+</body>
+</html>
