@@ -25,19 +25,23 @@
     <button id="sound-btn" title="Toggle sound (M)">♪</button>
     <button id="add-btn" title="Add entry (A)">+</button>
     <button id="cards-btn" title="Cards: hover only (C)">▤</button>
+    <button id="annotate-btn" title="Annotate (N)">✎</button>
     <button id="help-btn" aria-label="Keyboard shortcuts">?
       <div id="hotkey-tooltip" role="tooltip">
         <div class="hotkey-row"><kbd>A</kbd><span>Add entry</span></div>
         <div class="hotkey-row"><kbd>L</kbd><span>Toggle list</span></div>
         <div class="hotkey-row"><kbd>/</kbd><span>Search</span></div>
         <div class="hotkey-row"><kbd>M</kbd><span>Toggle sound</span></div>
+        <div class="hotkey-row"><kbd>N</kbd><span>Annotate</span></div>
+        <div class="hotkey-row"><kbd>C</kbd><span>Toggle cards</span></div>
+        <div class="hotkey-row"><kbd>Shift+Click</kbd><span>Connect markers</span></div>
+        <div class="hotkey-row"><kbd>Backspace</kbd><span>Undo annotation</span></div>
         <div class="hotkey-row"><kbd>Shift E</kbd><span>Export JSON</span></div>
         <div class="hotkey-row"><kbd>Shift H</kbd><span>Export HTML</span></div>
         <div class="hotkey-row"><kbd>Shift I</kbd><span>Import JSON</span></div>
-        <div class="hotkey-row"><kbd>Esc</kbd><span>Close / collapse</span></div>
+        <div class="hotkey-row"><kbd>Esc</kbd><span>Close / cancel</span></div>
         <div class="hotkey-row"><kbd>Scroll</kbd><span>Zoom</span></div>
         <div class="hotkey-row"><kbd>Drag</kbd><span>Pan</span></div>
-        <div class="hotkey-row"><kbd>C</kbd><span>Toggle cards</span></div>
         <div class="hotkey-row"><kbd>Double-click</kbd><span>Zoom in</span></div>
       </div>
     </button>
@@ -190,6 +194,7 @@
   </div>
 
   <!-- App scripts (load order matters) -->
+  <script src="js/annotations.js"></script>
   <script src="js/timeline.js"></script>
   <script src="js/background.js"></script>
   <script src="js/entries.js"></script>
@@ -209,9 +214,11 @@
       sizeCanvas();
       window.addEventListener('resize', sizeCanvas);
 
-      Timeline.attach(canvas, (screenX, screenY) => {
+      Timeline.attach(canvas, (screenX, screenY, shiftKey) => {
         const entry = Timeline.hitTest(Render.getEntries(), screenX);
-        if (entry) UI.openEditModal(entry);
+        if (!entry) return;
+        if (shiftKey) UI.handleConnectClick(entry);
+        else UI.openEditModal(entry);
       });
 
       // ── Preloader ───────────────────────────────────────────────────────────

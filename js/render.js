@@ -6,9 +6,9 @@ const Render = (() => {
   let entries = [];
 
   const CLUSTER_RADIUS = 18;
-  const GOLD  = '#5cbce0';
-  const WHITE = '#dce8ec';
-  const DIM   = 'rgba(220,232,236,0.4)';
+  const GOLD  = '#E8962A';
+  const WHITE = '#EDE8DC';
+  const DIM   = 'rgba(237,232,220,0.72)';
   const AXIS_H = 48;
 
   // ── Date label helper ─────────────────────────────────────────────────────────
@@ -61,6 +61,17 @@ const Render = (() => {
   let mouseX = -999;
   let mouseY = -999;
 
+  // ── Connect mode ─────────────────────────────────────────────────────────────
+  let connectSourceId = null;
+
+  function setConnectSource(id) {
+    connectSourceId = id;
+    Timeline.markDirty();
+  }
+
+  // ── Live annotation (screen coords — current stroke being drawn) ──────────────
+  let liveAnnotationPoints = null; // [{x,y}] screen coords
+
   // ── Sorted entry cache ────────────────────────────────────────────────────────
   // entries sorted by year (ascending = left on screen) — rebuilt only when entries change.
   let sortedEntries = [];
@@ -108,7 +119,7 @@ const Render = (() => {
     const h = Timeline.canvasHeight;
     const axisY = h - AXIS_H;
 
-    ctx.strokeStyle = 'rgba(92,188,224,0.25)';
+    ctx.strokeStyle = 'rgba(232,150,42,0.25)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, axisY);
@@ -141,7 +152,7 @@ const Render = (() => {
       const x = Timeline.dateToX(t);
       if (x < -40 || x > w + 40) continue;
 
-      ctx.strokeStyle = 'rgba(92,188,224,0.18)';
+      ctx.strokeStyle = 'rgba(232,150,42,0.18)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, axisY - 5);
@@ -162,7 +173,7 @@ const Render = (() => {
     const x = Timeline.dateToX(0);
     if (x < -40 || x > w + 40) return;
 
-    ctx.strokeStyle = 'rgba(92,188,224,0.5)';
+    ctx.strokeStyle = 'rgba(232,150,42,0.5)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 4]);
     ctx.beginPath();
@@ -171,7 +182,7 @@ const Render = (() => {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.fillStyle = 'rgba(92,188,224,0.55)';
+    ctx.fillStyle = 'rgba(232,150,42,0.55)';
     ctx.font = '9px "Cinzel", serif';
     ctx.textAlign = 'center';
     ctx.fillText('NOW', x, axisY - 66);
@@ -181,19 +192,29 @@ const Render = (() => {
   function drawMarker(entry, x, showLabel = true) {
     const h = Timeline.canvasHeight;
     const axisY = h - AXIS_H;
-    const isHovered = hoveredEntry && hoveredEntry.id === entry.id;
+    const isHovered  = hoveredEntry && hoveredEntry.id === entry.id;
+    const isSource   = connectSourceId === entry.id;
 
     // Drop animation offset
     const dropY = getMarkerDropOffset(entry.id);
     const markerY = axisY - 2 + dropY;
 
-    // Hover glow — soft radial pulse
-    if (isHovered) {
+    // Connect-source ring — strong pulsing amber halo
+    if (isSource) {
+      const pulse = 0.18 + 0.12 * Math.sin(performance.now() / 400);
+      const ring = ctx.createRadialGradient(x, markerY, 0, x, markerY, 32);
+      ring.addColorStop(0,   `rgba(232,150,42,${(pulse * 2.2).toFixed(3)})`);
+      ring.addColorStop(0.5, `rgba(232,150,42,${pulse.toFixed(3)})`);
+      ring.addColorStop(1,   'rgba(232,150,42,0)');
+      ctx.fillStyle = ring;
+      ctx.fillRect(x - 32, markerY - 32, 64, 64);
+    } else if (isHovered) {
+      // Hover glow — soft radial pulse
       const pulse = 0.14 + 0.10 * Math.sin(performance.now() / 700);
       const glow = ctx.createRadialGradient(x, markerY, 0, x, markerY, 22);
-      glow.addColorStop(0,   `rgba(92,188,224,${(pulse * 2).toFixed(3)})`);
-      glow.addColorStop(0.5, `rgba(92,188,224,${pulse.toFixed(3)})`);
-      glow.addColorStop(1,   'rgba(92,188,224,0)');
+      glow.addColorStop(0,   `rgba(232,150,42,${(pulse * 2).toFixed(3)})`);
+      glow.addColorStop(0.5, `rgba(232,150,42,${pulse.toFixed(3)})`);
+      glow.addColorStop(1,   'rgba(232,150,42,0)');
       ctx.fillStyle = glow;
       ctx.fillRect(x - 24, markerY - 24, 48, 48);
     }
@@ -201,26 +222,26 @@ const Render = (() => {
     // Span bar
     if (entry.yearEnd) {
       const x2 = Timeline.dateToX(entry.yearEnd);
-      ctx.fillStyle = isHovered ? 'rgba(92,188,224,0.32)' : 'rgba(92,188,224,0.14)';
+      ctx.fillStyle = (isHovered || isSource) ? 'rgba(232,150,42,0.32)' : 'rgba(232,150,42,0.14)';
       ctx.fillRect(Math.min(x, x2), axisY - 5, Math.abs(x2 - x), 5);
     }
 
-    // Diamond
-    const size = isHovered ? 7 : 5;
-    ctx.fillStyle = isHovered ? GOLD : 'rgba(92,188,224,0.72)';
+    // Diamond — larger and bright white when it's the connect source
+    const size = isSource ? 9 : isHovered ? 7 : 5;
+    ctx.fillStyle = isSource ? WHITE : isHovered ? GOLD : 'rgba(232,150,42,0.72)';
     ctx.save();
     ctx.translate(x, markerY);
     ctx.rotate(Math.PI / 4);
     ctx.fillRect(-size / 2, -size / 2, size, size);
     ctx.restore();
 
-    // Label — always visible when hovered; suppressed when too close to neighbour
-    if (showLabel || isHovered) {
-      const labelY = isHovered ? axisY - 20 : axisY - 14;
+    // Label
+    if (showLabel || isHovered || isSource) {
+      const labelY = (isHovered || isSource) ? axisY - 20 : axisY - 14;
       ctx.font = `11px "Cinzel", serif`;
-      ctx.fillStyle = isHovered ? WHITE : DIM;
+      ctx.fillStyle = (isHovered || isSource) ? WHITE : DIM;
       ctx.textAlign = 'center';
-      ctx.globalAlpha = isHovered ? 1 : 0.85;
+      ctx.globalAlpha = (isHovered || isSource) ? 1 : 0.85;
       ctx.fillText(entry.title, x, labelY + dropY);
       ctx.globalAlpha = 1;
     }
@@ -232,7 +253,7 @@ const Render = (() => {
     const axisY = h - AXIS_H;
     const r = 10;
 
-    ctx.fillStyle = 'rgba(92,188,224,0.18)';
+    ctx.fillStyle = 'rgba(232,150,42,0.18)';
     ctx.strokeStyle = GOLD;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -311,14 +332,14 @@ const Render = (() => {
         ctx.beginPath();
         ctx.moveTo(x1, axisY - 5);
         ctx.quadraticCurveTo(midX, cpY, x2, axisY - 5);
-        ctx.strokeStyle = isHot ? 'rgba(92,188,224,0.60)' : 'rgba(92,188,224,0.18)';
+        ctx.strokeStyle = isHot ? 'rgba(232,150,42,0.60)' : 'rgba(232,150,42,0.18)';
         ctx.lineWidth   = isHot ? 1.5 : 0.8;
         ctx.setLineDash(isHot ? [] : [3, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
 
         if (link.label && arcH > 18) {
-          ctx.fillStyle   = isHot ? 'rgba(92,188,224,0.65)' : 'rgba(92,188,224,0.28)';
+          ctx.fillStyle   = isHot ? 'rgba(232,150,42,0.65)' : 'rgba(232,150,42,0.28)';
           ctx.font        = '8px "Cinzel", serif';
           ctx.textAlign   = 'center';
           ctx.globalAlpha = 1;
@@ -400,6 +421,81 @@ const Render = (() => {
         drawCluster(group, avgX);
       }
     }
+
+    // ── Connect mode rubber-band ──────────────────────────────────────────────
+    if (connectSourceId && mouseX > 0) {
+      const src = entries.find(e => e.id === connectSourceId);
+      if (src) {
+        const sx = Timeline.dateToX(src.year);
+        const axisY = h - AXIS_H;
+        ctx.save();
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = 'rgba(232,150,42,0.70)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, axisY - 5);
+        ctx.lineTo(mouseX, mouseY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+
+    // ── Annotations ──────────────────────────────────────────────────────────
+    drawAnnotations();
+  }
+
+  // ── Annotation drawing ────────────────────────────────────────────────────────
+  function setLiveAnnotation(points) {
+    liveAnnotationPoints = points;
+    Timeline.markDirty();
+  }
+
+  function drawAnnotations() {
+    const h    = Timeline.canvasHeight;
+    const all  = Annotations.getAll();
+
+    ctx.save();
+    ctx.lineCap  = 'round';
+    ctx.lineJoin = 'round';
+
+    for (const ann of all) {
+      if (!ann.points || ann.points.length < 2) continue;
+      ctx.beginPath();
+      ctx.strokeStyle = ann.color || 'rgba(232,150,42,0.60)';
+      ctx.lineWidth   = ann.strokeWidth || 1.5;
+
+      const pts = ann.points;
+      ctx.moveTo(Timeline.dateToX(pts[0].year), pts[0].yFraction * h);
+      for (let i = 1; i < pts.length - 1; i++) {
+        const x1 = Timeline.dateToX(pts[i].year);
+        const y1 = pts[i].yFraction * h;
+        const x2 = Timeline.dateToX(pts[i + 1].year);
+        const y2 = pts[i + 1].yFraction * h;
+        ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+      }
+      const last = pts[pts.length - 1];
+      ctx.lineTo(Timeline.dateToX(last.year), last.yFraction * h);
+      ctx.stroke();
+    }
+
+    // Live stroke (raw screen coords — not yet committed)
+    if (liveAnnotationPoints && liveAnnotationPoints.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(232,150,42,0.80)';
+      ctx.lineWidth   = 1.5;
+      const lp = liveAnnotationPoints;
+      ctx.moveTo(lp[0].x, lp[0].y);
+      for (let i = 1; i < lp.length - 1; i++) {
+        const mx = (lp[i].x + lp[i + 1].x) / 2;
+        const my = (lp[i].y + lp[i + 1].y) / 2;
+        ctx.quadraticCurveTo(lp[i].x, lp[i].y, mx, my);
+      }
+      ctx.lineTo(lp[lp.length - 1].x, lp[lp.length - 1].y);
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
   // ── rAF loop ──────────────────────────────────────────────────────────────────
@@ -407,6 +503,7 @@ const Render = (() => {
   function loop() {
     const needsContinuousFrame =
       markerAnims.size > 0 ||
+      connectSourceId !== null ||
       hoveredEntry !== null;
 
     if (Timeline.dirty || needsContinuousFrame) {
@@ -483,5 +580,5 @@ const Render = (() => {
     return groups.filter(g => g.length === 1).map(g => ({ entry: g[0], x: tmpCachedX(g[0]) }));
   }
 
-  return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles };
+  return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles, setConnectSource, setLiveAnnotation };
 })();

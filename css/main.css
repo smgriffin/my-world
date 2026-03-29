@@ -6,13 +6,13 @@
 }
 
 :root {
-  --accent:     #5cbce0;
-  --accent-dim: rgba(92, 188, 224, 0.4);
-  --white:    #dce8ec;
-  --dim:      rgba(220, 232, 236, 0.45);
-  --bg:       #090909;
-  --panel-bg: rgba(8, 7, 5, 0.95);
-  --border:   rgba(92, 188, 224, 0.18);
+  --accent:     #E8962A;
+  --accent-dim: rgba(232, 150, 42, 0.38);
+  --white:      #EDE8DC;
+  --dim:        rgba(237, 232, 220, 0.72);
+  --bg:         #080807;
+  --panel-bg:   rgba(10, 9, 7, 0.97);
+  --border:     rgba(237, 232, 220, 0.13);
 
   --font-head: 'Cinzel', serif;
   --font-body: 'EB Garamond', serif;
@@ -53,21 +53,21 @@ html, body {
   font-family: var(--font-head);
   font-size: 13px;
   letter-spacing: 0.45em;
-  color: rgba(92, 188, 224, 0.55);
+  color: rgba(232, 150, 42, 0.55);
   text-transform: uppercase;
 }
 
 #preloader-bar {
   width: 160px;
   height: 1px;
-  background: rgba(92, 188, 224, 0.12);
+  background: rgba(232, 150, 42, 0.12);
   overflow: hidden;
 }
 
 #preloader-fill {
   height: 100%;
   width: 0%;
-  background: rgba(92, 188, 224, 0.55);
+  background: rgba(232, 150, 42, 0.55);
   transition: width 0.12s linear;
 }
 
@@ -104,9 +104,9 @@ html, body {
   width: 32px;
   height: 32px;
   border-radius: 3px;
-  border: 1px solid rgba(92, 188, 224, 0.18);
+  border: 1px solid rgba(232, 150, 42, 0.18);
   background: rgba(4, 6, 10, 0.55);
-  color: rgba(92, 188, 224, 0.55);
+  color: rgba(232, 150, 42, 0.55);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -119,19 +119,19 @@ html, body {
 
 #fab button:hover {
   color: var(--accent);
-  border-color: rgba(92, 188, 224, 0.45);
+  border-color: rgba(232, 150, 42, 0.45);
   background: rgba(4, 6, 10, 0.85);
 }
 
 #fab button.muted {
-  color: rgba(92, 188, 224, 0.18);
-  border-color: rgba(92, 188, 224, 0.08);
+  color: rgba(232, 150, 42, 0.18);
+  border-color: rgba(232, 150, 42, 0.08);
 }
 
 #fab button.active {
   color: var(--accent);
-  border-color: rgba(92, 188, 224, 0.50);
-  background: rgba(92, 188, 224, 0.08);
+  border-color: rgba(232, 150, 42, 0.50);
+  background: rgba(232, 150, 42, 0.08);
 }
 
 /* Help button — same size as others, row layout */
@@ -166,7 +166,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 4px 0;
-  border-bottom: 1px solid rgba(92, 188, 224, 0.06);
+  border-bottom: 1px solid rgba(232, 150, 42, 0.06);
 }
 
 .hotkey-row:last-child {
@@ -178,8 +178,8 @@ html, body {
   font-size: 9px;
   letter-spacing: 0.08em;
   color: var(--accent);
-  background: rgba(92, 188, 224, 0.08);
-  border: 1px solid rgba(92, 188, 224, 0.2);
+  background: rgba(232, 150, 42, 0.08);
+  border: 1px solid rgba(232, 150, 42, 0.2);
   padding: 2px 6px;
   white-space: nowrap;
 }
@@ -247,7 +247,7 @@ html, body {
 }
 
 #search-input::placeholder {
-  color: rgba(220, 232, 236, 0.25);
+  color: rgba(237, 232, 222, 0.25);
 }
 
 #search-input:focus {
@@ -278,12 +278,12 @@ html, body {
   flex-direction: column;
   padding: 10px 16px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(92, 188, 224, 0.06);
+  border-bottom: 1px solid rgba(232, 150, 42, 0.06);
   transition: background 0.15s;
 }
 
 .list-item:hover {
-  background: rgba(92, 188, 224, 0.05);
+  background: rgba(232, 150, 42, 0.05);
 }
 
 .list-item-year {
@@ -580,11 +580,11 @@ html, body {
   font-family: var(--font-body);
   font-size: 13px;
   color: var(--dim);
-  border-bottom: 1px solid rgba(92, 188, 224, 0.06);
+  border-bottom: 1px solid rgba(232, 150, 42, 0.06);
 }
 
 #connection-suggestions li:hover {
-  background: rgba(92, 188, 224, 0.06);
+  background: rgba(232, 150, 42, 0.06);
   color: var(--white);
 }
 
@@ -592,7 +592,7 @@ html, body {
   font-family: var(--font-date);
   font-style: italic;
   font-size: 11px;
-  color: rgba(92, 188, 224, 0.5);
+  color: rgba(232, 150, 42, 0.5);
 }
 
 #connection-chips {
@@ -606,8 +606,8 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(92, 188, 224, 0.07);
-  border: 1px solid rgba(92, 188, 224, 0.22);
+  background: rgba(232, 150, 42, 0.07);
+  border: 1px solid rgba(232, 150, 42, 0.22);
   padding: 4px 6px 4px 10px;
   font-family: var(--font-head);
   font-size: 9px;
@@ -633,7 +633,7 @@ html, body {
 
 /* ── Attachment zone ───────────────────────────────────────────────────────── */
 #attachment-zone {
-  border: 1px dashed rgba(92, 188, 224, 0.22);
+  border: 1px dashed rgba(232, 150, 42, 0.22);
   padding: 18px;
   text-align: center;
   cursor: pointer;
@@ -642,8 +642,8 @@ html, body {
 
 #attachment-zone:hover,
 #attachment-zone.drag-over {
-  border-color: rgba(92, 188, 224, 0.5);
-  background: rgba(92, 188, 224, 0.04);
+  border-color: rgba(232, 150, 42, 0.5);
+  background: rgba(232, 150, 42, 0.04);
 }
 
 .attachment-hint {
@@ -678,10 +678,10 @@ html, body {
   font-family: var(--font-head);
   font-size: 8px;
   letter-spacing: 0.18em;
-  color: rgba(92, 188, 224, 0.38);
+  color: rgba(232, 150, 42, 0.38);
   text-transform: uppercase;
   margin-bottom: 6px;
-  border-bottom: 1px solid rgba(92, 188, 224, 0.07);
+  border-bottom: 1px solid rgba(232, 150, 42, 0.07);
   padding-bottom: 4px;
 }
 
@@ -769,7 +769,7 @@ html, body {
 
 .attachment-audio-icon {
   font-size: 14px;
-  color: rgba(92, 188, 224, 0.45);
+  color: rgba(232, 150, 42, 0.45);
   flex-shrink: 0;
 }
 
@@ -865,8 +865,8 @@ html, body {
 /* ── Cards toggle button — active state ────────────────────────────────────── */
 #cards-btn.active {
   color: var(--accent);
-  border-color: rgba(92, 188, 224, 0.5);
-  background: rgba(92, 188, 224, 0.08);
+  border-color: rgba(232, 150, 42, 0.5);
+  background: rgba(232, 150, 42, 0.08);
 }
 
 /* ── Card layer ────────────────────────────────────────────────────────────── */
@@ -888,7 +888,7 @@ html, body {
   pointer-events: auto;
   width: 220px;
   background: rgba(9, 8, 5, 0.97);
-  border: 1px solid rgba(92, 188, 224, 0.26);
+  border: 1px solid rgba(232, 150, 42, 0.26);
   padding: 13px 15px 11px;
   cursor: pointer;
   animation: card-rise 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -906,11 +906,11 @@ html, body {
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 6px solid rgba(92, 188, 224, 0.26);
+  border-top: 6px solid rgba(232, 150, 42, 0.26);
 }
 
 .entry-card:hover {
-  border-color: rgba(92, 188, 224, 0.5);
+  border-color: rgba(232, 150, 42, 0.5);
 }
 
 .entry-card-date {
@@ -934,7 +934,7 @@ html, body {
 .entry-card-summary {
   font-family: var(--font-body);
   font-size: 12px;
-  color: rgba(220, 232, 236, 0.55);
+  color: rgba(237, 232, 222, 0.55);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -953,8 +953,8 @@ html, body {
   font-family: var(--font-head);
   font-size: 8px;
   letter-spacing: 0.1em;
-  color: rgba(92, 188, 224, 0.45);
-  border: 1px solid rgba(92, 188, 224, 0.18);
+  color: rgba(232, 150, 42, 0.45);
+  border: 1px solid rgba(232, 150, 42, 0.18);
   padding: 2px 5px;
   text-transform: uppercase;
 }
@@ -975,7 +975,7 @@ html, body {
 
 .card-hero {
   overflow: hidden;
-  border-bottom: 1px solid rgba(92, 188, 224, 0.12);
+  border-bottom: 1px solid rgba(232, 150, 42, 0.12);
 }
 
 .layout-article .card-hero { height: 120px; }
@@ -1018,4 +1018,70 @@ html, body {
 .layout-article::after,
 .layout-feature::after {
   bottom: -6px;
+}
+
+/* ── Tactile hover & interaction feel ─────────────────────────────────────── */
+
+.entry-card {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.18s ease,
+              border-color 0.15s;
+}
+.entry-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  border-color: rgba(232, 150, 42, 0.55);
+}
+
+.list-item {
+  transition: background 0.15s, transform 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.list-item:hover {
+  transform: translateX(4px);
+}
+
+.attachment-thumb,
+.attachment-file {
+  transition: transform 0.14s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s;
+}
+.attachment-thumb:hover,
+.attachment-file:hover {
+  transform: scale(1.06);
+  z-index: 1;
+}
+
+.btn-primary {
+  transition: opacity 0.18s, transform 0.1s;
+}
+.btn-primary:active  { transform: scale(0.96); }
+
+.btn-ghost {
+  transition: color 0.18s, border-color 0.18s, transform 0.1s;
+}
+.btn-ghost:active   { transform: scale(0.96); }
+
+/* ── Drag-to-reorder states ───────────────────────────────────────────────── */
+[draggable] { cursor: grab; }
+[draggable]:active { cursor: grabbing; }
+
+.dragging {
+  opacity: 0.35;
+  transform: scale(0.95) !important;
+}
+
+.drop-target {
+  outline: 1px dashed rgba(232, 150, 42, 0.60);
+  outline-offset: 1px;
+}
+
+/* ── Annotation mode ──────────────────────────────────────────────────────── */
+#canvas.annotating {
+  cursor: crosshair !important;
+}
+
+#annotate-btn.active {
+  color: var(--accent);
+  border-color: rgba(232, 150, 42, 0.55);
+  background: rgba(232, 150, 42, 0.10);
+  box-shadow: 0 0 8px rgba(232, 150, 42, 0.18);
 }

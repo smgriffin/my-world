@@ -6,11 +6,48 @@ const UI = (() => {
   let soundBtn, addBtn, importInput;
   let attachmentZone, attachmentInput, attachmentGrid;
   let lightbox, lightboxImg;
-  let cardLayer, cardsBtnEl;
+  let cardLayer, cardsBtnEl, annotateBtnEl;
+  let canvasEl; // stored at init for connect/annotation use
 
   let editingId = null;
   let searchQuery = '';
   let pendingAttachments = []; // { id, name, type, data }
+
+  // ── Connect mode ─────────────────────────────────────────────────────────────
+  let connectSourceEntry = null;
+
+  function handleConnectClick(entry) {
+    if (!connectSourceEntry) {
+      connectSourceEntry = entry;
+      Render.setConnectSource(entry.id);
+    } else if (connectSourceEntry.id === entry.id) {
+      cancelConnect();
+    } else {
+      completeConnect(entry);
+    }
+  }
+
+  function cancelConnect() {
+    connectSourceEntry = null;
+    Render.setConnectSource(null);
+    if (canvasEl) canvasEl.style.cursor = '';
+  }
+
+  async function completeConnect(target) {
+    const src = connectSourceEntry;
+    cancelConnect();
+    const existingLinks = src.links || [];
+    if (existingLinks.some(l => l.toId === target.id)) return; // already connected
+    await Entries.update(src.id, { ...src, links: [...existingLinks, { toId: target.id, label: '' }] });
+    await refresh();
+    Render.triggerMarkerDrop(src.id);
+    Render.triggerMarkerDrop(target.id);
+  }
+
+  // ── Annotation mode ───────────────────────────────────────────────────────────
+  let annotating       = false;
+  let annotDrawing     = false;
+  let annotLivePoints  = [];
 
   // ── Card layer ────────────────────────────────────────────────────────────────
   let cardsAlwaysOn  = false;
@@ -246,6 +283,43 @@ const UI = (() => {
     renderAttachmentGrid();
   }
 
+  // ── Drag-to-reorder attachments ───────────────────────────────────────────────
+  let draggingAttId = null;
+
+  function setupDrag(el, att) {
+    el.draggable = true;
+    el.addEventListener('dragstart', (e) => {
+      draggingAttId = att.id;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => el.classList.add('dragging'), 0);
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      draggingAttId = null;
+    });
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drop-target');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      el.classList.remove('drop-target');
+      if (!draggingAttId || draggingAttId === att.id) return;
+      const fromIdx = pendingAttachments.findIndex(a => a.id === draggingAttId);
+      const toIdx   = pendingAttachments.findIndex(a => a.id === att.id);
+      if (fromIdx === -1 || toIdx === -1) return;
+      // Only allow reorder within the same media category
+      if (mediaCategory(pendingAttachments[fromIdx].type) !== mediaCategory(att.type)) return;
+      const arr = [...pendingAttachments];
+      const [moved] = arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, moved);
+      pendingAttachments = arr;
+      renderAttachmentGrid();
+    });
+  }
+
   function buildRemoveBtn(id) {
     const rm = document.createElement('button');
     rm.type = 'button';
@@ -263,6 +337,7 @@ const UI = (() => {
     img.addEventListener('click', () => openLightbox(att.data));
     wrap.appendChild(img);
     wrap.appendChild(buildRemoveBtn(att.id));
+    setupDrag(wrap, att);
     return wrap;
   }
 
@@ -278,6 +353,7 @@ const UI = (() => {
     wrap.appendChild(icon);
     wrap.appendChild(name);
     wrap.appendChild(buildRemoveBtn(att.id));
+    setupDrag(wrap, att);
     return wrap;
   }
 
@@ -301,6 +377,7 @@ const UI = (() => {
     wrap.appendChild(left);
     wrap.appendChild(player);
     wrap.appendChild(buildRemoveBtn(att.id));
+    setupDrag(wrap, att);
     return wrap;
   }
 
@@ -316,6 +393,7 @@ const UI = (() => {
     wrap.appendChild(icon);
     wrap.appendChild(name);
     wrap.appendChild(buildRemoveBtn(att.id));
+    setupDrag(wrap, att);
     return wrap;
   }
 
@@ -616,6 +694,13 @@ const UI = (() => {
       case 'C':
         setCardsAlwaysOn(!cardsAlwaysOn);
         break;
+      case 'n':
+      case 'N':
+        setAnnotationMode(!annotating);
+        break;
+      case 'Backspace':
+        if (annotating) { Annotations.removeLast(); Timeline.markDirty(); }
+        break;
       case 'E':
         if (e.shiftKey) Entries.exportJSON();
         break;
@@ -626,6 +711,8 @@ const UI = (() => {
         if (e.shiftKey) importInput.click();
         break;
       case 'Escape':
+        if (annotating) { setAnnotationMode(false); return; }
+        if (connectSourceEntry) { cancelConnect(); return; }
         if (!listPanel.classList.contains('collapsed')) toggleListPanel();
         break;
     }
@@ -651,12 +738,15 @@ const UI = (() => {
     lightboxImg      = document.getElementById('lightbox-img');
     cardLayer        = document.getElementById('card-layer');
     cardsBtnEl       = document.getElementById('cards-btn');
+    annotateBtnEl    = document.getElementById('annotate-btn');
     connSearchEl     = document.getElementById('connection-search');
     connSuggestEl    = document.getElementById('connection-suggestions');
     connChipsEl      = document.getElementById('connection-chips');
+    canvasEl         = document.getElementById('canvas');
 
     addBtn.addEventListener('click', openAddModal);
     cardsBtnEl.addEventListener('click', () => setCardsAlwaysOn(!cardsAlwaysOn));
+    annotateBtnEl.addEventListener('click', () => setAnnotationMode(!annotating));
 
     // ── Connection search ─────────────────────────────────────────────────────
     connSearchEl.addEventListener('input', (e) => showConnectionSuggestions(e.target.value));
@@ -732,21 +822,76 @@ const UI = (() => {
       handleKeydown(e);
     });
 
-    // ── Hover card detection ──────────────────────────────────────────────────
-    const canvas = document.getElementById('canvas');
-    canvas.addEventListener('mousemove', (e) => {
-      if (cardsAlwaysOn) return;
+    // ── Canvas interaction — hover cards, cursor, connect, annotation ─────────
+    canvasEl.addEventListener('mousemove', (e) => {
+      // Annotation drawing
+      if (annotating && annotDrawing) {
+        annotLivePoints.push({ x: e.clientX, y: e.clientY });
+        Render.setLiveAnnotation([...annotLivePoints]);
+        return;
+      }
+
       const entry = Timeline.hitTest(Render.getEntries(), e.clientX, 20);
-      if (entry) {
-        showHoverCard(entry, Timeline.dateToX(entry.year));
+
+      // Cursor
+      if (annotating) {
+        canvasEl.style.cursor = 'crosshair';
+      } else if (connectSourceEntry) {
+        canvasEl.style.cursor = (entry && entry.id !== connectSourceEntry.id) ? 'cell' : 'crosshair';
       } else {
-        hideHoverCard();
+        canvasEl.style.cursor = entry ? 'pointer' : '';
+      }
+
+      // Hover cards
+      if (!cardsAlwaysOn && !annotating) {
+        if (entry) showHoverCard(entry, Timeline.dateToX(entry.year));
+        else hideHoverCard();
       }
     });
-    canvas.addEventListener('mouseleave', () => {
+
+    canvasEl.addEventListener('mouseleave', () => {
       if (!cardsAlwaysOn) hideHoverCard();
+      if (!connectSourceEntry && !annotating) canvasEl.style.cursor = '';
+    });
+
+    // Annotation: start stroke on mousedown
+    canvasEl.addEventListener('mousedown', (e) => {
+      if (!annotating || e.button !== 0) return;
+      annotDrawing    = true;
+      annotLivePoints = [{ x: e.clientX, y: e.clientY }];
+      Timeline.markDirty();
+    });
+
+    // Annotation: commit stroke on mouseup (window-level to catch releases outside canvas)
+    window.addEventListener('mouseup', () => {
+      if (!annotating || !annotDrawing) return;
+      annotDrawing = false;
+      if (annotLivePoints.length > 1) {
+        Annotations.add({
+          points: annotLivePoints.map(p => ({
+            year:      Timeline.xToDate(p.x),
+            yFraction: p.y / Timeline.canvasHeight,
+          })),
+        });
+      }
+      annotLivePoints = [];
+      Render.setLiveAnnotation(null);
     });
   }
 
-  return { init, refresh, openEditModal };
+  function setAnnotationMode(on) {
+    annotating = on;
+    Timeline.setPanEnabled(!on);
+    annotateBtnEl.classList.toggle('active', on);
+    annotateBtnEl.title = on ? 'Stop annotating (N)' : 'Annotate (N)';
+    if (canvasEl) canvasEl.style.cursor = on ? 'crosshair' : '';
+    if (!on) {
+      annotDrawing    = false;
+      annotLivePoints = [];
+      Render.setLiveAnnotation(null);
+    }
+    if (on) hideHoverCard();
+  }
+
+  return { init, refresh, openEditModal, handleConnectClick };
 })();

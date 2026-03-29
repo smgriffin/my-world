@@ -75,8 +75,12 @@ const Timeline = (() => {
 
   let onClickEntry = null; // set by attach()
   let clickTimer = null;   // used to suppress single-click on double-click
+  let panEnabled = true;   // false in annotation mode — disables drag and click
+
+  function setPanEnabled(v) { panEnabled = v; }
 
   function onMouseDown(e) {
+    if (!panEnabled) return;
     isDragging = true;
     dragMoved = false;
     dragStartX = e.clientX;
@@ -93,12 +97,13 @@ const Timeline = (() => {
   }
 
   function onMouseUp(e) {
+    if (!panEnabled) { isDragging = false; dragMoved = false; return; }
     if (!dragMoved && onClickEntry) {
       // Delay single-click so a double-click can cancel it
-      const cx = e.clientX, cy = e.clientY;
+      const cx = e.clientX, cy = e.clientY, shift = e.shiftKey;
       clickTimer = setTimeout(() => {
         clickTimer = null;
-        onClickEntry(cx, cy);
+        onClickEntry(cx, cy, shift);
       }, 220);
     }
     isDragging = false;
@@ -256,6 +261,7 @@ const Timeline = (() => {
     hitTest,
     currentZone,
     panToDate,
+    setPanEnabled,
     LOG_BASE,
     BIG_BANG_YEARS_AGO,
   };
