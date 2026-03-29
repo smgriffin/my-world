@@ -154,10 +154,19 @@
         </div>
 
         <div class="field">
+          <label for="f-layout">Card Layout</label>
+          <select id="f-layout" name="layout">
+            <option value="compact">Compact — date, title, snippet</option>
+            <option value="article">Article — with hero photo</option>
+            <option value="feature">Feature — large photo &amp; full text</option>
+          </select>
+        </div>
+
+        <div class="field">
           <label>Photos &amp; Files</label>
           <div id="attachment-zone">
             <span class="attachment-hint">Drop files here or <button type="button" id="attachment-browse">browse</button></span>
-            <input type="file" id="attachment-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.csv,.json" style="display:none">
+            <input type="file" id="attachment-input" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.csv,.json" style="display:none">
           </div>
           <div id="attachment-grid"></div>
         </div>
@@ -169,6 +178,14 @@
         </div>
 
       </form>
+    </div>
+  </div>
+
+  <!-- Preloader -->
+  <div id="preloader">
+    <div id="preloader-inner">
+      <div id="preloader-title">MY WORLD</div>
+      <div id="preloader-bar"><div id="preloader-fill"></div></div>
     </div>
   </div>
 
@@ -196,6 +213,28 @@
         const entry = Timeline.hitTest(Render.getEntries(), screenX);
         if (entry) UI.openEditModal(entry);
       });
+
+      // ── Preloader ───────────────────────────────────────────────────────────
+      const preloader = document.getElementById('preloader');
+      const preloaderFill = document.getElementById('preloader-fill');
+
+      // Animate bar during image load (images are ~10MB total)
+      let fakePct = 0;
+      const fakeTimer = setInterval(() => {
+        fakePct = Math.min(fakePct + (0.9 - fakePct) * 0.06, 0.88);
+        preloaderFill.style.width = `${fakePct * 100}%`;
+      }, 60);
+
+      await Background.preload();
+
+      clearInterval(fakeTimer);
+      preloaderFill.style.width = '100%';
+      await new Promise(r => setTimeout(r, 280)); // brief pause at 100%
+
+      // Fade out preloader
+      preloader.style.opacity = '0';
+      await new Promise(r => setTimeout(r, 480));
+      preloader.style.display = 'none';
 
       Render.init(canvas);
       await Entries.seedIfEmpty();

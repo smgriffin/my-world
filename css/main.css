@@ -6,13 +6,13 @@
 }
 
 :root {
-  --gold:     #c9a84c;
-  --gold-dim: rgba(201, 168, 76, 0.4);
-  --white:    #e8e2d4;
-  --dim:      rgba(232, 226, 212, 0.45);
+  --accent:     #5cbce0;
+  --accent-dim: rgba(92, 188, 224, 0.4);
+  --white:    #dce8ec;
+  --dim:      rgba(220, 232, 236, 0.45);
   --bg:       #090909;
   --panel-bg: rgba(8, 7, 5, 0.95);
-  --border:   rgba(201, 168, 76, 0.18);
+  --border:   rgba(92, 188, 224, 0.18);
 
   --font-head: 'Cinzel', serif;
   --font-body: 'EB Garamond', serif;
@@ -30,6 +30,47 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Preloader ─────────────────────────────────────────────────────────────── */
+#preloader {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000009;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.48s ease;
+}
+
+#preloader-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+#preloader-title {
+  font-family: var(--font-head);
+  font-size: 13px;
+  letter-spacing: 0.45em;
+  color: rgba(92, 188, 224, 0.55);
+  text-transform: uppercase;
+}
+
+#preloader-bar {
+  width: 160px;
+  height: 1px;
+  background: rgba(92, 188, 224, 0.12);
+  overflow: hidden;
+}
+
+#preloader-fill {
+  height: 100%;
+  width: 0%;
+  background: rgba(92, 188, 224, 0.55);
+  transition: width 0.12s linear;
+}
+
 /* ── Canvas ────────────────────────────────────────────────────────────────── */
 #canvas {
   display: block;
@@ -42,49 +83,61 @@ html, body {
   cursor: grabbing;
 }
 
-/* ── Floating action buttons ───────────────────────────────────────────────── */
+/* ── Floating action buttons — top-left, recessed ─────────────────────────── */
 #fab {
   position: fixed;
-  bottom: 28px;
-  right: 28px;
+  top: 20px;
+  left: 20px;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  gap: 8px;
   z-index: 10;
+  opacity: 0.28;
+  transition: opacity 0.25s ease;
+}
+
+#fab:hover {
+  opacity: 1;
 }
 
 #fab button {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: 1px solid rgba(201, 168, 76, 0.25);
-  background: rgba(10, 8, 4, 0.7);
-  color: rgba(201, 168, 76, 0.5);
-  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 3px;
+  border: 1px solid rgba(92, 188, 224, 0.18);
+  background: rgba(4, 6, 10, 0.55);
+  color: rgba(92, 188, 224, 0.55);
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(6px);
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  backdrop-filter: blur(8px);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 
 #fab button:hover {
-  color: var(--gold);
-  border-color: var(--gold-dim);
-  background: rgba(10, 8, 4, 0.9);
+  color: var(--accent);
+  border-color: rgba(92, 188, 224, 0.45);
+  background: rgba(4, 6, 10, 0.85);
 }
 
 #fab button.muted {
-  color: rgba(201, 168, 76, 0.2);
-  border-color: rgba(201, 168, 76, 0.1);
+  color: rgba(92, 188, 224, 0.18);
+  border-color: rgba(92, 188, 224, 0.08);
 }
 
-/* Help button — smaller, less prominent */
+#fab button.active {
+  color: var(--accent);
+  border-color: rgba(92, 188, 224, 0.50);
+  background: rgba(92, 188, 224, 0.08);
+}
+
+/* Help button — same size as others, row layout */
 #help-btn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   font-size: 12px;
   font-family: var(--font-head);
   position: relative;
@@ -94,12 +147,12 @@ html, body {
 #hotkey-tooltip {
   display: none;
   position: absolute;
-  right: 44px;
-  bottom: 0;
-  background: rgba(8, 7, 4, 0.97);
+  left: 0;
+  top: calc(100% + 10px);
+  background: rgba(4, 6, 10, 0.97);
   border: 1px solid var(--border);
   padding: 14px 16px;
-  width: 230px;
+  width: 220px;
   backdrop-filter: blur(12px);
   pointer-events: none;
 }
@@ -113,7 +166,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 4px 0;
-  border-bottom: 1px solid rgba(201, 168, 76, 0.06);
+  border-bottom: 1px solid rgba(92, 188, 224, 0.06);
 }
 
 .hotkey-row:last-child {
@@ -124,9 +177,9 @@ html, body {
   font-family: var(--font-head);
   font-size: 9px;
   letter-spacing: 0.08em;
-  color: var(--gold);
-  background: rgba(201, 168, 76, 0.08);
-  border: 1px solid rgba(201, 168, 76, 0.2);
+  color: var(--accent);
+  background: rgba(92, 188, 224, 0.08);
+  border: 1px solid rgba(92, 188, 224, 0.2);
   padding: 2px 6px;
   white-space: nowrap;
 }
@@ -172,7 +225,7 @@ html, body {
   font-family: var(--font-head);
   font-size: 10px;
   letter-spacing: 0.15em;
-  color: var(--gold);
+  color: var(--accent);
   text-transform: uppercase;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -194,7 +247,7 @@ html, body {
 }
 
 #search-input::placeholder {
-  color: rgba(232, 226, 212, 0.25);
+  color: rgba(220, 232, 236, 0.25);
 }
 
 #search-input:focus {
@@ -225,19 +278,19 @@ html, body {
   flex-direction: column;
   padding: 10px 16px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(201, 168, 76, 0.06);
+  border-bottom: 1px solid rgba(92, 188, 224, 0.06);
   transition: background 0.15s;
 }
 
 .list-item:hover {
-  background: rgba(201, 168, 76, 0.05);
+  background: rgba(92, 188, 224, 0.05);
 }
 
 .list-item-year {
   font-family: var(--font-date);
   font-size: 11px;
   font-style: italic;
-  color: var(--gold);
+  color: var(--accent);
   margin-bottom: 2px;
 }
 
@@ -319,7 +372,7 @@ html, body {
   font-family: var(--font-head);
   font-size: 13px;
   letter-spacing: 0.12em;
-  color: var(--gold);
+  color: var(--accent);
   text-transform: uppercase;
 }
 
@@ -335,7 +388,7 @@ html, body {
 }
 
 #modal-close:hover {
-  color: var(--gold);
+  color: var(--accent);
 }
 
 /* Form fields */
@@ -349,7 +402,7 @@ html, body {
   font-family: var(--font-head);
   font-size: 10px;
   letter-spacing: 0.1em;
-  color: var(--gold);
+  color: var(--accent);
   text-transform: uppercase;
 }
 
@@ -370,7 +423,7 @@ html, body {
 .field input:focus,
 .field textarea:focus,
 .field select:focus {
-  border-color: var(--gold-dim);
+  border-color: var(--accent-dim);
 }
 
 .field textarea {
@@ -402,7 +455,7 @@ html, body {
 .date-row select {
   width: auto;
   border-left: none;
-  color: var(--gold);
+  color: var(--accent);
   font-size: 12px;
   padding-left: 8px;
   padding-right: 8px;
@@ -426,7 +479,7 @@ html, body {
 }
 
 .btn-primary {
-  background: var(--gold);
+  background: var(--accent);
   border: none;
   color: #0a0800;
   font-family: var(--font-head);
@@ -497,7 +550,7 @@ html, body {
 }
 
 #connection-search:focus {
-  border-color: var(--gold-dim);
+  border-color: var(--accent-dim);
 }
 
 #connection-suggestions {
@@ -527,11 +580,11 @@ html, body {
   font-family: var(--font-body);
   font-size: 13px;
   color: var(--dim);
-  border-bottom: 1px solid rgba(201, 168, 76, 0.06);
+  border-bottom: 1px solid rgba(92, 188, 224, 0.06);
 }
 
 #connection-suggestions li:hover {
-  background: rgba(201, 168, 76, 0.06);
+  background: rgba(92, 188, 224, 0.06);
   color: var(--white);
 }
 
@@ -539,7 +592,7 @@ html, body {
   font-family: var(--font-date);
   font-style: italic;
   font-size: 11px;
-  color: rgba(201, 168, 76, 0.5);
+  color: rgba(92, 188, 224, 0.5);
 }
 
 #connection-chips {
@@ -553,13 +606,13 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(201, 168, 76, 0.07);
-  border: 1px solid rgba(201, 168, 76, 0.22);
+  background: rgba(92, 188, 224, 0.07);
+  border: 1px solid rgba(92, 188, 224, 0.22);
   padding: 4px 6px 4px 10px;
   font-family: var(--font-head);
   font-size: 9px;
   letter-spacing: 0.08em;
-  color: var(--gold);
+  color: var(--accent);
   text-transform: uppercase;
 }
 
@@ -580,7 +633,7 @@ html, body {
 
 /* ── Attachment zone ───────────────────────────────────────────────────────── */
 #attachment-zone {
-  border: 1px dashed rgba(201, 168, 76, 0.22);
+  border: 1px dashed rgba(92, 188, 224, 0.22);
   padding: 18px;
   text-align: center;
   cursor: pointer;
@@ -589,8 +642,8 @@ html, body {
 
 #attachment-zone:hover,
 #attachment-zone.drag-over {
-  border-color: rgba(201, 168, 76, 0.5);
-  background: rgba(201, 168, 76, 0.04);
+  border-color: rgba(92, 188, 224, 0.5);
+  background: rgba(92, 188, 224, 0.04);
 }
 
 .attachment-hint {
@@ -603,7 +656,7 @@ html, body {
 .attachment-hint button {
   background: none;
   border: none;
-  color: var(--gold);
+  color: var(--accent);
   font-family: var(--font-body);
   font-size: 13px;
   font-style: italic;
@@ -616,9 +669,27 @@ html, body {
 /* ── Attachment grid ───────────────────────────────────────────────────────── */
 #attachment-grid {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.attachment-section-header {
+  font-family: var(--font-head);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: rgba(92, 188, 224, 0.38);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(92, 188, 224, 0.07);
+  padding-bottom: 4px;
+}
+
+/* Tile grid — images, video icons, doc icons */
+.attachment-tile-grid {
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
 }
 
 .attachment-thumb {
@@ -676,6 +747,49 @@ html, body {
   overflow: hidden;
 }
 
+/* Audio row */
+.attachment-audio {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  padding: 8px 36px 8px 10px;
+}
+
+.attachment-audio-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+  max-width: 120px;
+}
+
+.attachment-audio-icon {
+  font-size: 14px;
+  color: rgba(92, 188, 224, 0.45);
+  flex-shrink: 0;
+}
+
+.attachment-audio .attachment-file-name {
+  text-align: left;
+  max-height: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-audio-player {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  filter: invert(0.85) sepia(0.3) hue-rotate(170deg);
+  opacity: 0.7;
+}
+
+/* Shared remove button — absolute top-right, revealed on hover */
 .attachment-remove {
   position: absolute;
   top: 3px;
@@ -696,7 +810,8 @@ html, body {
 }
 
 .attachment-thumb:hover .attachment-remove,
-.attachment-file:hover .attachment-remove {
+.attachment-file:hover .attachment-remove,
+.attachment-audio:hover .attachment-remove {
   opacity: 1;
 }
 
@@ -749,9 +864,9 @@ html, body {
 
 /* ── Cards toggle button — active state ────────────────────────────────────── */
 #cards-btn.active {
-  color: var(--gold);
-  border-color: rgba(201, 168, 76, 0.5);
-  background: rgba(201, 168, 76, 0.08);
+  color: var(--accent);
+  border-color: rgba(92, 188, 224, 0.5);
+  background: rgba(92, 188, 224, 0.08);
 }
 
 /* ── Card layer ────────────────────────────────────────────────────────────── */
@@ -773,7 +888,7 @@ html, body {
   pointer-events: auto;
   width: 220px;
   background: rgba(9, 8, 5, 0.97);
-  border: 1px solid rgba(201, 168, 76, 0.26);
+  border: 1px solid rgba(92, 188, 224, 0.26);
   padding: 13px 15px 11px;
   cursor: pointer;
   animation: card-rise 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -791,18 +906,18 @@ html, body {
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 6px solid rgba(201, 168, 76, 0.26);
+  border-top: 6px solid rgba(92, 188, 224, 0.26);
 }
 
 .entry-card:hover {
-  border-color: rgba(201, 168, 76, 0.5);
+  border-color: rgba(92, 188, 224, 0.5);
 }
 
 .entry-card-date {
   font-family: var(--font-date);
   font-size: 11px;
   font-style: italic;
-  color: var(--gold);
+  color: var(--accent);
   margin-bottom: 5px;
 }
 
@@ -819,7 +934,7 @@ html, body {
 .entry-card-summary {
   font-family: var(--font-body);
   font-size: 12px;
-  color: rgba(232, 226, 212, 0.55);
+  color: rgba(220, 232, 236, 0.55);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -838,8 +953,69 @@ html, body {
   font-family: var(--font-head);
   font-size: 8px;
   letter-spacing: 0.1em;
-  color: rgba(201, 168, 76, 0.45);
-  border: 1px solid rgba(201, 168, 76, 0.18);
+  color: rgba(92, 188, 224, 0.45);
+  border: 1px solid rgba(92, 188, 224, 0.18);
   padding: 2px 5px;
   text-transform: uppercase;
+}
+
+/* ── Card layouts — article & feature ─────────────────────────────────────── */
+
+/* Compact is the default — no overrides needed */
+
+.entry-card.layout-article {
+  width: 260px;
+  padding: 0;
+}
+
+.entry-card.layout-feature {
+  width: 320px;
+  padding: 0;
+}
+
+.card-hero {
+  overflow: hidden;
+  border-bottom: 1px solid rgba(92, 188, 224, 0.12);
+}
+
+.layout-article .card-hero { height: 120px; }
+.layout-feature .card-hero { height: 180px; }
+
+.card-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity 0.2s;
+}
+
+.entry-card:hover .card-hero img {
+  opacity: 0.88;
+}
+
+.card-body {
+  padding: 10px 13px 11px;
+}
+
+/* Article tweaks */
+.layout-article .entry-card-summary {
+  -webkit-line-clamp: 5;
+}
+
+/* Feature tweaks */
+.layout-feature .entry-card-title {
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.layout-feature .entry-card-summary {
+  font-size: 13px;
+  -webkit-line-clamp: 8;
+}
+
+/* Stem for padded layouts: position via card-body bottom edge */
+.layout-article::after,
+.layout-feature::after {
+  bottom: -6px;
 }

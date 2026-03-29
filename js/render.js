@@ -6,9 +6,9 @@ const Render = (() => {
   let entries = [];
 
   const CLUSTER_RADIUS = 18;
-  const GOLD  = '#c9a84c';
-  const WHITE = '#e8e2d4';
-  const DIM   = 'rgba(232,226,212,0.4)';
+  const GOLD  = '#5cbce0';
+  const WHITE = '#dce8ec';
+  const DIM   = 'rgba(220,232,236,0.4)';
   const AXIS_H = 48;
 
   // ── Date label helper ─────────────────────────────────────────────────────────
@@ -61,22 +61,44 @@ const Render = (() => {
   let mouseX = -999;
   let mouseY = -999;
 
-  // ── Clustering ────────────────────────────────────────────────────────────────
-  function cluster(entries) {
+  // ── Sorted entry cache ────────────────────────────────────────────────────────
+  // entries sorted by year (ascending = left on screen) — rebuilt only when entries change.
+  let sortedEntries = [];
+  let entriesVersion = 0; // bumped by setEntries
+
+  // Per-frame x-position cache: avoids re-calling dateToX for same entry twice.
+  // Keyed by entry id, valid for the current draw call only.
+  let xCache = new Map();
+
+  function cachedX(entry) {
+    let x = xCache.get(entry.id);
+    if (x === undefined) { x = Timeline.dateToX(entry.year); xCache.set(entry.id, x); }
+    return x;
+  }
+
+  // ── Clustering — O(n) sweep on pre-sorted entries ─────────────────────────────
+  // Because entries are sorted by year (which maps monotonically to x), we only
+  // need a single left-to-right pass: when the next entry's x is within
+  // CLUSTER_RADIUS of the current group centroid, absorb it.
+  function cluster(visible) {
+    if (!visible.length) return [];
     const groups = [];
-    const used = new Set();
-    for (let i = 0; i < entries.length; i++) {
-      if (used.has(i)) continue;
-      const group = [entries[i]];
-      used.add(i);
-      const xi = Timeline.dateToX(entries[i].year);
-      for (let j = i + 1; j < entries.length; j++) {
-        if (used.has(j)) continue;
-        const xj = Timeline.dateToX(entries[j].year);
-        if (Math.abs(xi - xj) < CLUSTER_RADIUS) { group.push(entries[j]); used.add(j); }
+    let group = [visible[0]];
+    let groupX = cachedX(visible[0]);
+
+    for (let i = 1; i < visible.length; i++) {
+      const x = cachedX(visible[i]);
+      if (Math.abs(x - groupX) < CLUSTER_RADIUS) {
+        group.push(visible[i]);
+        // Update running centroid
+        groupX = (groupX * (group.length - 1) + x) / group.length;
+      } else {
+        groups.push(group);
+        group  = [visible[i]];
+        groupX = x;
       }
-      groups.push(group);
     }
+    groups.push(group);
     return groups;
   }
 
@@ -86,7 +108,7 @@ const Render = (() => {
     const h = Timeline.canvasHeight;
     const axisY = h - AXIS_H;
 
-    ctx.strokeStyle = 'rgba(201,168,76,0.25)';
+    ctx.strokeStyle = 'rgba(92,188,224,0.25)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, axisY);
@@ -119,7 +141,7 @@ const Render = (() => {
       const x = Timeline.dateToX(t);
       if (x < -40 || x > w + 40) continue;
 
-      ctx.strokeStyle = 'rgba(201,168,76,0.18)';
+      ctx.strokeStyle = 'rgba(92,188,224,0.18)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, axisY - 5);
@@ -140,7 +162,7 @@ const Render = (() => {
     const x = Timeline.dateToX(0);
     if (x < -40 || x > w + 40) return;
 
-    ctx.strokeStyle = 'rgba(201,168,76,0.5)';
+    ctx.strokeStyle = 'rgba(92,188,224,0.5)';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 4]);
     ctx.beginPath();
@@ -149,7 +171,7 @@ const Render = (() => {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.fillStyle = 'rgba(201,168,76,0.55)';
+    ctx.fillStyle = 'rgba(92,188,224,0.55)';
     ctx.font = '9px "Cinzel", serif';
     ctx.textAlign = 'center';
     ctx.fillText('NOW', x, axisY - 66);
@@ -169,9 +191,9 @@ const Render = (() => {
     if (isHovered) {
       const pulse = 0.14 + 0.10 * Math.sin(performance.now() / 700);
       const glow = ctx.createRadialGradient(x, markerY, 0, x, markerY, 22);
-      glow.addColorStop(0,   `rgba(201,168,76,${(pulse * 2).toFixed(3)})`);
-      glow.addColorStop(0.5, `rgba(201,168,76,${pulse.toFixed(3)})`);
-      glow.addColorStop(1,   'rgba(201,168,76,0)');
+      glow.addColorStop(0,   `rgba(92,188,224,${(pulse * 2).toFixed(3)})`);
+      glow.addColorStop(0.5, `rgba(92,188,224,${pulse.toFixed(3)})`);
+      glow.addColorStop(1,   'rgba(92,188,224,0)');
       ctx.fillStyle = glow;
       ctx.fillRect(x - 24, markerY - 24, 48, 48);
     }
@@ -179,13 +201,13 @@ const Render = (() => {
     // Span bar
     if (entry.yearEnd) {
       const x2 = Timeline.dateToX(entry.yearEnd);
-      ctx.fillStyle = isHovered ? 'rgba(201,168,76,0.32)' : 'rgba(201,168,76,0.14)';
+      ctx.fillStyle = isHovered ? 'rgba(92,188,224,0.32)' : 'rgba(92,188,224,0.14)';
       ctx.fillRect(Math.min(x, x2), axisY - 5, Math.abs(x2 - x), 5);
     }
 
     // Diamond
     const size = isHovered ? 7 : 5;
-    ctx.fillStyle = isHovered ? GOLD : 'rgba(201,168,76,0.72)';
+    ctx.fillStyle = isHovered ? GOLD : 'rgba(92,188,224,0.72)';
     ctx.save();
     ctx.translate(x, markerY);
     ctx.rotate(Math.PI / 4);
@@ -210,7 +232,7 @@ const Render = (() => {
     const axisY = h - AXIS_H;
     const r = 10;
 
-    ctx.fillStyle = 'rgba(201,168,76,0.18)';
+    ctx.fillStyle = 'rgba(92,188,224,0.18)';
     ctx.strokeStyle = GOLD;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -289,14 +311,14 @@ const Render = (() => {
         ctx.beginPath();
         ctx.moveTo(x1, axisY - 5);
         ctx.quadraticCurveTo(midX, cpY, x2, axisY - 5);
-        ctx.strokeStyle = isHot ? 'rgba(201,168,76,0.60)' : 'rgba(201,168,76,0.18)';
+        ctx.strokeStyle = isHot ? 'rgba(92,188,224,0.60)' : 'rgba(92,188,224,0.18)';
         ctx.lineWidth   = isHot ? 1.5 : 0.8;
         ctx.setLineDash(isHot ? [] : [3, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
 
         if (link.label && arcH > 18) {
-          ctx.fillStyle   = isHot ? 'rgba(201,168,76,0.65)' : 'rgba(201,168,76,0.28)';
+          ctx.fillStyle   = isHot ? 'rgba(92,188,224,0.65)' : 'rgba(92,188,224,0.28)';
           ctx.font        = '8px "Cinzel", serif';
           ctx.textAlign   = 'center';
           ctx.globalAlpha = 1;
@@ -323,26 +345,50 @@ const Render = (() => {
       return;
     }
 
-    // Update hovered entry based on current mouse position
+    // Reset per-frame x-cache
+    xCache = new Map();
+
+    // Update hovered entry (use sorted array + binary search via hitTest)
     hoveredEntry = Timeline.hitTest(entries, mouseX, 20);
 
-    // Connection arcs drawn before markers so markers sit on top
+    // Viewport cull: only pass entries whose x is on-screen (+/- 80px margin)
+    // sortedEntries is pre-sorted by year; since year maps monotonically to x
+    // (larger year = further left), we can binary-search for the visible window.
+    const leftDate  = Timeline.xToDate(w + 80);
+    const rightDate = Timeline.xToDate(-80);
+    // Binary search for first entry with year >= leftDate
+    let lo = 0, hi = sortedEntries.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedEntries[mid].year < leftDate) lo = mid + 1; else hi = mid;
+    }
+    const visStart = lo;
+    // Binary search for last entry with year <= rightDate
+    lo = 0; hi = sortedEntries.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedEntries[mid].year <= rightDate) lo = mid + 1; else hi = mid;
+    }
+    const visible = sortedEntries.slice(visStart, lo);
+
+    // Connection arcs (only between visible entries + their direct targets)
     drawConnections();
 
-    // Sort groups left-to-right for label collision detection
-    const groups = cluster(entries);
-    groups.sort((a, b) => {
-      const ax = a.reduce((s, e) => s + Timeline.dateToX(e.year), 0) / a.length;
-      const bx = b.reduce((s, e) => s + Timeline.dateToX(e.year), 0) / b.length;
-      return ax - bx;
-    });
+    // Cluster visible entries — O(n) sweep (sorted by year = sorted by x)
+    // sortedEntries is descending year (left=old, right=new on log scale),
+    // but x increases left→right as year decreases. Reverse for sweep.
+    const visibleForCluster = [...visible].reverse();
+    const groups = cluster(visibleForCluster);
 
-    ctx.font = '11px "Cinzel", serif'; // prime for measureText
+    ctx.font = '11px "Cinzel", serif'; // prime measureText
     let lastLabelRight = -Infinity;
 
     for (const group of groups) {
-      const avgX = group.reduce((sum, e) => sum + Timeline.dateToX(e.year), 0) / group.length;
-      if (avgX < -60 || avgX > w + 60) continue;
+      // avgX using cached positions
+      let sumX = 0;
+      for (const e of group) sumX += cachedX(e);
+      const avgX = sumX / group.length;
+
       if (group.length === 1) {
         const entry  = group[0];
         const textW  = ctx.measureText(entry.title).width;
@@ -393,24 +439,48 @@ const Render = (() => {
 
   function setEntries(newEntries) {
     entries = newEntries;
+    // Keep a sorted copy (ascending year = old→recent) for O(log n) viewport culling
+    sortedEntries = [...newEntries].sort((a, b) => a.year - b.year);
+    entriesVersion++;
     Timeline.markDirty();
   }
 
   function getEntries() { return entries; }
 
+  // Binary search helpers (operate on sortedEntries, ascending year)
+  function lowerBound(minYear) {
+    let lo = 0, hi = sortedEntries.length;
+    while (lo < hi) { const m = (lo + hi) >>> 1; if (sortedEntries[m].year < minYear) lo = m + 1; else hi = m; }
+    return lo;
+  }
+  function upperBound(maxYear) {
+    let lo = 0, hi = sortedEntries.length;
+    while (lo < hi) { const m = (lo + hi) >>> 1; if (sortedEntries[m].year <= maxYear) lo = m + 1; else hi = m; }
+    return lo;
+  }
+
   // Returns [{entry, x}] for non-clustered, on-screen entries — used by UI for card layer.
   function getVisibleSingles() {
-    const w = Timeline.canvasWidth;
-    const groups = cluster(entries);
-    const result = [];
-    for (const group of groups) {
-      if (group.length !== 1) continue;
-      const entry = group[0];
-      const x = Timeline.dateToX(entry.year);
-      if (x < -60 || x > w + 60) continue;
-      result.push({ entry, x });
+    const w           = Timeline.canvasWidth;
+    const recentDate  = Timeline.xToDate(w + 60);
+    const oldDate     = Timeline.xToDate(-60);
+    const visible     = sortedEntries.slice(lowerBound(recentDate), upperBound(oldDate));
+    const tmpCache    = new Map();
+    const tmpCachedX  = e => { let v = tmpCache.get(e.id); if (v == null) { v = Timeline.dateToX(e.year); tmpCache.set(e.id, v); } return v; };
+    // Cluster expects left-to-right order (descending year on log scale)
+    const forCluster  = [...visible].reverse();
+    // Inline cluster using tmpCachedX
+    const groups = [];
+    if (forCluster.length) {
+      let group = [forCluster[0]], gx = tmpCachedX(forCluster[0]);
+      for (let i = 1; i < forCluster.length; i++) {
+        const x = tmpCachedX(forCluster[i]);
+        if (Math.abs(x - gx) < CLUSTER_RADIUS) { group.push(forCluster[i]); gx = (gx * (group.length - 1) + x) / group.length; }
+        else { groups.push(group); group = [forCluster[i]]; gx = x; }
+      }
+      groups.push(group);
     }
-    return result;
+    return groups.filter(g => g.length === 1).map(g => ({ entry: g[0], x: tmpCachedX(g[0]) }));
   }
 
   return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles };

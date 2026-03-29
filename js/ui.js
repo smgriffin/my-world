@@ -23,11 +23,14 @@ const UI = (() => {
   const CARD_W       = 220;
   const CARD_AXIS_H  = 48;   // matches render.js AXIS_H
   const CARD_ABOVE   = 38;   // px above axis where card bottom lands (keeps stem above the label)
+  const LAYOUT_W     = { compact: 220, article: 260, feature: 320 };
 
   function buildCardEl(entry) {
+    const layout = entry.layout || 'compact';
     const el = document.createElement('div');
-    el.className = 'entry-card';
-    el.dataset.id = entry.id;
+    el.className = `entry-card layout-${layout}`;
+    el.dataset.id     = entry.id;
+    el.dataset.layout = layout;
 
     const dateStr = entry.yearEnd
       ? `${formatYear(entry.year)} – ${formatYear(entry.yearEnd)}`
@@ -38,32 +41,47 @@ const UI = (() => {
           `<span class="entry-card-tag">${t}</span>`).join('')}</div>`
       : '';
 
-    el.innerHTML = `
-      <div class="entry-card-date">${dateStr}</div>
-      <div class="entry-card-title">${entry.title}</div>
-      ${entry.summary ? `<div class="entry-card-summary">${entry.summary}</div>` : ''}
-      ${tagsHtml}
-    `;
+    if (layout === 'compact') {
+      el.innerHTML = `
+        <div class="entry-card-date">${dateStr}</div>
+        <div class="entry-card-title">${entry.title}</div>
+        ${entry.summary ? `<div class="entry-card-summary">${entry.summary}</div>` : ''}
+        ${tagsHtml}
+      `;
+    } else {
+      const photos  = entry.photos || [];
+      const heroRaw = photos.find(p => typeof p === 'string' || (p.type && p.type.startsWith('image/')));
+      const heroSrc = heroRaw ? (typeof heroRaw === 'string' ? heroRaw : heroRaw.data) : null;
+      el.innerHTML = `
+        ${heroSrc ? `<div class="card-hero"><img src="${heroSrc}" alt=""></div>` : ''}
+        <div class="card-body">
+          <div class="entry-card-date">${dateStr}</div>
+          <div class="entry-card-title">${entry.title}</div>
+          ${entry.summary ? `<div class="entry-card-summary">${entry.summary}</div>` : ''}
+          ${tagsHtml}
+        </div>
+      `;
+    }
 
     el.addEventListener('click', () => openEditModal(entry));
     return el;
   }
 
   function placeCard(cardEl, x) {
+    const layout     = cardEl.dataset.layout || 'compact';
+    const w          = LAYOUT_W[layout] || CARD_W;
     const screenW    = window.innerWidth;
     const axisY      = Timeline.canvasHeight - CARD_AXIS_H;
-    const cardBottom = axisY - CARD_ABOVE; // px from top of screen to card bottom edge
+    const cardBottom = axisY - CARD_ABOVE;
 
-    // Horizontal: centre on x, clamped to viewport
-    let left = x - CARD_W / 2;
-    left = Math.max(8, Math.min(screenW - CARD_W - 8, left));
+    let left = x - w / 2;
+    left = Math.max(8, Math.min(screenW - w - 8, left));
 
     cardEl.style.left   = `${left}px`;
     cardEl.style.top    = '';
     cardEl.style.bottom = `${window.innerHeight - cardBottom}px`;
 
-    // Stem adjusts to point at actual marker x
-    const stemPx = Math.max(10, Math.min(CARD_W - 10, x - left));
+    const stemPx = Math.max(10, Math.min(w - 10, x - left));
     cardEl.style.setProperty('--stem-left', `${stemPx}px`);
   }
 
@@ -81,14 +99,14 @@ const UI = (() => {
     if (hoverCardEl) { hoverCardEl.remove(); hoverCardEl = null; hoverCardEntId = null; }
   }
 
-  // Greedy left-to-right filter: keeps only entries spaced ≥ CARD_W apart.
+  // Greedy left-to-right filter: keeps only entries spaced ≥ their card width apart.
   function deoverlapCards(singles) {
     if (!singles.length) return singles;
     const sorted = [...singles].sort((a, b) => a.x - b.x);
-    const minGap = CARD_W + 10;
     const out = [sorted[0]];
     for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i].x - out[out.length - 1].x >= minGap) out.push(sorted[i]);
+      const prevW = LAYOUT_W[(out[out.length - 1].entry.layout || 'compact')] || CARD_W;
+      if (sorted[i].x - out[out.length - 1].x >= prevW + 10) out.push(sorted[i]);
     }
     return out;
   }
@@ -194,8 +212,11 @@ const UI = (() => {
   }
 
   // ── Attachments ───────────────────────────────────────────────────────────────
-  function isImage(type) {
-    return type.startsWith('image/');
+  function mediaCategory(type) {
+    if (type.startsWith('image/')) return 'image';
+    if (type.startsWith('video/')) return 'video';
+    if (type.startsWith('audio/')) return 'audio';
+    return 'document';
   }
 
   function readFileAsDataURL(file) {
@@ -225,50 +246,117 @@ const UI = (() => {
     renderAttachmentGrid();
   }
 
+  function buildRemoveBtn(id) {
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'attachment-remove';
+    rm.textContent = '×';
+    rm.addEventListener('click', (e) => { e.stopPropagation(); removeAttachment(id); });
+    return rm;
+  }
+
+  function buildImageThumb(att) {
+    const wrap = document.createElement('div');
+    wrap.className = 'attachment-thumb';
+    const img = document.createElement('img');
+    img.src = att.data; img.alt = att.name;
+    img.addEventListener('click', () => openLightbox(att.data));
+    wrap.appendChild(img);
+    wrap.appendChild(buildRemoveBtn(att.id));
+    return wrap;
+  }
+
+  function buildVideoTile(att) {
+    const wrap = document.createElement('div');
+    wrap.className = 'attachment-file';
+    const icon = document.createElement('div');
+    icon.className = 'attachment-file-icon';
+    icon.textContent = '▶';
+    const name = document.createElement('div');
+    name.className = 'attachment-file-name';
+    name.textContent = att.name;
+    wrap.appendChild(icon);
+    wrap.appendChild(name);
+    wrap.appendChild(buildRemoveBtn(att.id));
+    return wrap;
+  }
+
+  function buildAudioRow(att) {
+    const wrap = document.createElement('div');
+    wrap.className = 'attachment-audio';
+    const left = document.createElement('div');
+    left.className = 'attachment-audio-left';
+    const icon = document.createElement('span');
+    icon.className = 'attachment-audio-icon';
+    icon.textContent = '♪';
+    const name = document.createElement('span');
+    name.className = 'attachment-file-name';
+    name.textContent = att.name;
+    left.appendChild(icon);
+    left.appendChild(name);
+    const player = document.createElement('audio');
+    player.src = att.data;
+    player.controls = true;
+    player.className = 'attachment-audio-player';
+    wrap.appendChild(left);
+    wrap.appendChild(player);
+    wrap.appendChild(buildRemoveBtn(att.id));
+    return wrap;
+  }
+
+  function buildDocRow(att) {
+    const wrap = document.createElement('div');
+    wrap.className = 'attachment-file';
+    const icon = document.createElement('div');
+    icon.className = 'attachment-file-icon';
+    icon.textContent = fileIcon(att.type);
+    const name = document.createElement('div');
+    name.className = 'attachment-file-name';
+    name.textContent = att.name;
+    wrap.appendChild(icon);
+    wrap.appendChild(name);
+    wrap.appendChild(buildRemoveBtn(att.id));
+    return wrap;
+  }
+
   function renderAttachmentGrid() {
     attachmentGrid.innerHTML = '';
-    for (const att of pendingAttachments) {
-      if (isImage(att.type)) {
-        const wrap = document.createElement('div');
-        wrap.className = 'attachment-thumb';
+    if (!pendingAttachments.length) return;
 
-        const img = document.createElement('img');
-        img.src = att.data;
-        img.alt = att.name;
-        img.addEventListener('click', () => openLightbox(att.data));
+    const groups = { image: [], video: [], audio: [], document: [] };
+    for (const att of pendingAttachments) groups[mediaCategory(att.type)].push(att);
 
-        const rm = document.createElement('button');
-        rm.type = 'button';
-        rm.className = 'attachment-remove';
-        rm.textContent = '×';
-        rm.addEventListener('click', (e) => { e.stopPropagation(); removeAttachment(att.id); });
+    const labels = { image: 'Images', video: 'Video', audio: 'Audio', document: 'Documents' };
 
-        wrap.appendChild(img);
-        wrap.appendChild(rm);
-        attachmentGrid.appendChild(wrap);
+    for (const cat of ['image', 'video', 'audio', 'document']) {
+      const items = groups[cat];
+      if (!items.length) continue;
+
+      const section = document.createElement('div');
+      section.className = 'attachment-section';
+
+      const hdr = document.createElement('div');
+      hdr.className = 'attachment-section-header';
+      hdr.textContent = items.length > 1 ? `${labels[cat]} (${items.length})` : labels[cat];
+      section.appendChild(hdr);
+
+      if (cat === 'image' || cat === 'video') {
+        const grid = document.createElement('div');
+        grid.className = 'attachment-tile-grid';
+        for (const att of items) {
+          grid.appendChild(cat === 'image' ? buildImageThumb(att) : buildVideoTile(att));
+        }
+        section.appendChild(grid);
+      } else if (cat === 'audio') {
+        for (const att of items) section.appendChild(buildAudioRow(att));
       } else {
-        const wrap = document.createElement('div');
-        wrap.className = 'attachment-file';
-
-        const icon = document.createElement('div');
-        icon.className = 'attachment-file-icon';
-        icon.textContent = fileIcon(att.type);
-
-        const name = document.createElement('div');
-        name.className = 'attachment-file-name';
-        name.textContent = att.name;
-
-        const rm = document.createElement('button');
-        rm.type = 'button';
-        rm.className = 'attachment-remove';
-        rm.textContent = '×';
-        rm.addEventListener('click', () => removeAttachment(att.id));
-
-        wrap.appendChild(icon);
-        wrap.appendChild(name);
-        wrap.appendChild(rm);
-        attachmentGrid.appendChild(wrap);
+        const grid = document.createElement('div');
+        grid.className = 'attachment-tile-grid';
+        for (const att of items) grid.appendChild(buildDocRow(att));
+        section.appendChild(grid);
       }
+
+      attachmentGrid.appendChild(section);
     }
   }
 
@@ -420,6 +508,7 @@ const UI = (() => {
     modalForm.elements['summary'].value   = entry.summary   || '';
     modalForm.elements['notes'].value     = entry.notes     || '';
     modalForm.elements['tags'].value      = (entry.tags || []).join(', ');
+    modalForm.elements['layout'].value   = entry.layout   || 'compact';
 
     if (connSearchEl) connSearchEl.value = '';
     renderAttachmentGrid();
@@ -442,6 +531,7 @@ const UI = (() => {
       yearEnd:   f['toValue'].value ? toYearsAgo(f['toValue'].value, f['toUnit'].value) : null,
       type:      f['type'].value,
       entryType: f['entryType'].value,
+      layout:    f['layout'].value || 'compact',
       summary:   f['summary'].value.trim(),
       notes:     f['notes'].value.trim(),
       tags:      f['tags'].value.split(',').map(t => t.trim()).filter(Boolean),
