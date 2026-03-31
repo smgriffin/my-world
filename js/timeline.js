@@ -218,6 +218,12 @@ const Timeline = (() => {
       clearTimeout(clickTimer);
       clickTimer = null;
     }
+    // Double-clicking within 40px of the NOW marker jumps back to default view
+    const nowX = dateToX(0);
+    if (Math.abs(e.clientX - nowX) < 40) {
+      setViewSpan(50);
+      return;
+    }
     const targetZoom = Math.min(MAX_ZOOM, zoom * 6);
     animateZoomTo(targetZoom, e.clientX);
   }

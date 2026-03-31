@@ -50,6 +50,22 @@ const Render = (() => {
 
   function getTagFilter() { return activeTagFilter; }
 
+  // ── Search filter ─────────────────────────────────────────────────────────────
+  let activeSearch = '';
+
+  function setSearchQuery(q) {
+    activeSearch = q || '';
+    Timeline.markDirty();
+  }
+
+  function entryMatchesSearch(entry) {
+    if (!activeSearch) return true;
+    const q = activeSearch.toLowerCase();
+    return entry.title.toLowerCase().includes(q) ||
+      (entry.summary || '').toLowerCase().includes(q) ||
+      (entry.tags || []).some(t => t.toLowerCase().includes(q));
+  }
+
   // ── Date label helper ─────────────────────────────────────────────────────────
   const CURRENT_YEAR = new Date().getFullYear();
   const MS_PER_YEAR  = 365.25 * 24 * 3600 * 1000;
@@ -357,9 +373,9 @@ const Render = (() => {
     const isHovered  = hoveredEntry && hoveredEntry.id === entry.id;
     const isSource   = connectSourceId === entry.id;
 
-    // Dim entries that don't match the active tag filter
-    const isFiltered = activeTagFilter &&
-      !(entry.tags || []).includes(activeTagFilter);
+    // Dim entries that don't match active tag filter or search query
+    const isFiltered = (activeTagFilter && !(entry.tags || []).includes(activeTagFilter))
+                    || (activeSearch && !entryMatchesSearch(entry));
     if (isFiltered) ctx.globalAlpha = 0.18;
 
     const color = entryColor(entry);
@@ -835,5 +851,5 @@ const Render = (() => {
     return groups.filter(g => g.length === 1).map(g => ({ entry: g[0], x: cx(g[0]) }));
   }
 
-  return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles, setConnectSource, setLiveAnnotation, setConnectionsVisible, setTagFilter, getTagFilter, tagColor };
+  return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles, setConnectSource, setLiveAnnotation, setConnectionsVisible, setTagFilter, getTagFilter, tagColor, setSearchQuery };
 })();

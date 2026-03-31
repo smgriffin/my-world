@@ -965,6 +965,7 @@ const UI = (() => {
         e.preventDefault();
         if (listPanel.classList.contains('collapsed')) listPanel.classList.remove('collapsed');
         searchInput.focus();
+        searchInput.select();
         break;
       case 'm':
       case 'M':
@@ -1296,8 +1297,22 @@ const UI = (() => {
 
     searchInput.addEventListener('input', (e) => {
       searchQuery = e.target.value.toLowerCase().trim();
+      Render.setSearchQuery(searchQuery);
       renderList(Render.getEntries());
-      Timeline.markDirty();
+    });
+
+    // / or Escape while search is focused → clear and close
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === '/') {
+        e.preventDefault();
+        e.stopPropagation();
+        searchInput.value = '';
+        searchQuery = '';
+        Render.setSearchQuery('');
+        renderList(Render.getEntries());
+        searchInput.blur();
+        if (!listPanel.classList.contains('collapsed')) toggleListPanel();
+      }
     });
 
     soundBtn.addEventListener('click', () => {
