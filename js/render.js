@@ -163,26 +163,53 @@ const Render = (() => {
     return x;
   }
 
-  // ── Clustering — O(n) sweep on pre-sorted entries ─────────────────────────────
-  // Because entries are sorted by year (which maps monotonically to x), we only
-  // need a single left-to-right pass: when the next entry's x is within
-  // CLUSTER_RADIUS of the current group centroid, absorb it.
+  // ── Label-width cache ─────────────────────────────────────────────────────────
+  // measureText is fast but called many times per frame; cache by title string.
+  const labelWidthCache = new Map();
+  function labelWidth(title) {
+    let w = labelWidthCache.get(title);
+    if (w === undefined) {
+      w = ctx ? ctx.measureText(title).width : title.length * 7;
+      labelWidthCache.set(title, w);
+    }
+    return w;
+  }
+
+  // ── Clustering — label-aware O(n) sweep ───────────────────────────────────────
+  // Entries are absorbed into a cluster whenever their label would overlap the
+  // previous group's label (or badge). This guarantees zero label collisions
+  // regardless of title length, without a separate suppression pass.
+  // MIN_GAP is the breathing room between adjacent labels/badges.
+  const MIN_GAP = 10;
+  const BADGE_HALF = 14; // half-width of a cluster badge circle
+
   function cluster(visible) {
     if (!visible.length) return [];
+    if (ctx) ctx.font = '11px "Cinzel", serif'; // prime measureText
+
     const groups = [];
-    let group = [visible[0]];
-    let groupX = cachedX(visible[0]);
+    let group   = [visible[0]];
+    let gx      = cachedX(visible[0]);
+    // Right edge of the current group's visual footprint
+    let gRight  = gx + labelWidth(visible[0].title) / 2;
 
     for (let i = 1; i < visible.length; i++) {
-      const x = cachedX(visible[i]);
-      if (Math.abs(x - groupX) < CLUSTER_RADIUS) {
+      const x    = cachedX(visible[i]);
+      const hw   = labelWidth(visible[i].title) / 2;
+      const lft  = x - hw; // left edge of this entry's label
+
+      if (lft < gRight + MIN_GAP) {
+        // Would overlap — absorb into current cluster
         group.push(visible[i]);
-        // Update running centroid
-        groupX = (groupX * (group.length - 1) + x) / group.length;
+        // Recalculate centroid
+        gx = 0; for (const e of group) gx += cachedX(e); gx /= group.length;
+        // Cluster badge is compact; its right edge is just gx + BADGE_HALF
+        gRight = gx + BADGE_HALF;
       } else {
         groups.push(group);
         group  = [visible[i]];
-        groupX = x;
+        gx     = x;
+        gRight = x + hw;
       }
     }
     groups.push(group);
@@ -541,28 +568,16 @@ const Render = (() => {
     const visibleForCluster = [...visible].reverse();
     const groups = cluster(visibleForCluster);
 
-    ctx.font = '11px "Cinzel", serif'; // prime measureText
-
-    // Pre-compute positions and label-fit in a single pass so we can
-    // suppress only long labels that would still collide after clustering.
-    let lastLabelRight = -Infinity;
-    const draws = groups.map(group => {
+    // Clustering guarantees no label collisions — draw everything unconditionally.
+    for (const group of groups) {
       let sumX = 0;
       for (const e of group) sumX += cachedX(e);
-      return { group, avgX: sumX / group.length };
-    });
+      const avgX = sumX / group.length;
 
-    for (const { group, avgX } of draws) {
       if (group.length === 1) {
-        const entry  = group[0];
-        const textW  = ctx.measureText(entry.title).width;
-        const lLeft  = avgX - textW / 2;
-        const showLabel = lLeft > lastLabelRight + 4;
-        if (showLabel) lastLabelRight = avgX + textW / 2;
-        drawMarker(entry, avgX, showLabel);
+        drawMarker(group[0], avgX, true);
       } else {
         drawCluster(group, avgX);
-        lastLabelRight = avgX + 14; // cluster badge width
       }
     }
 
@@ -763,27 +778,37 @@ const Render = (() => {
   }
 
   // Returns [{entry, x}] for non-clustered, on-screen entries — used by UI for card layer.
+  // Uses the same label-aware clustering as the draw loop so cards and markers agree.
   function getVisibleSingles() {
-    const w           = Timeline.canvasWidth;
-    const recentDate  = Timeline.xToDate(w + 60);
-    const oldDate     = Timeline.xToDate(-60);
-    const visible     = sortedEntries.slice(lowerBound(recentDate), upperBound(oldDate));
-    const tmpCache    = new Map();
-    const tmpCachedX  = e => { let v = tmpCache.get(e.id); if (v == null) { v = Timeline.dateToX(e.year); tmpCache.set(e.id, v); } return v; };
-    // Cluster expects left-to-right order (descending year on log scale)
-    const forCluster  = [...visible].reverse();
-    // Inline cluster using tmpCachedX
+    const w          = Timeline.canvasWidth;
+    const recentDate = Timeline.xToDate(w + 60);
+    const oldDate    = Timeline.xToDate(-60);
+    const visible    = sortedEntries.slice(lowerBound(recentDate), upperBound(oldDate));
+    const tmpCache   = new Map();
+    const cx = e => { let v = tmpCache.get(e.id); if (v == null) { v = Timeline.dateToX(e.year); tmpCache.set(e.id, v); } return v; };
+
+    const forCluster = [...visible].reverse();
+    if (!forCluster.length) return [];
+
     const groups = [];
-    if (forCluster.length) {
-      let group = [forCluster[0]], gx = tmpCachedX(forCluster[0]);
-      for (let i = 1; i < forCluster.length; i++) {
-        const x = tmpCachedX(forCluster[i]);
-        if (Math.abs(x - gx) < CLUSTER_RADIUS) { group.push(forCluster[i]); gx = (gx * (group.length - 1) + x) / group.length; }
-        else { groups.push(group); group = [forCluster[i]]; gx = x; }
+    let group  = [forCluster[0]];
+    let gx     = cx(forCluster[0]);
+    let gRight = gx + labelWidth(forCluster[0].title) / 2;
+
+    for (let i = 1; i < forCluster.length; i++) {
+      const x   = cx(forCluster[i]);
+      const hw  = labelWidth(forCluster[i].title) / 2;
+      if ((x - hw) < gRight + MIN_GAP) {
+        group.push(forCluster[i]);
+        gx = 0; for (const e of group) gx += cx(e); gx /= group.length;
+        gRight = gx + BADGE_HALF;
+      } else {
+        groups.push(group); group = [forCluster[i]]; gx = x; gRight = x + hw;
       }
-      groups.push(group);
     }
-    return groups.filter(g => g.length === 1).map(g => ({ entry: g[0], x: tmpCachedX(g[0]) }));
+    groups.push(group);
+
+    return groups.filter(g => g.length === 1).map(g => ({ entry: g[0], x: cx(g[0]) }));
   }
 
   return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles, setConnectSource, setLiveAnnotation, setConnectionsVisible, setTagFilter, getTagFilter, tagColor };
