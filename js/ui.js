@@ -686,6 +686,14 @@ const UI = (() => {
   function toggleListPanel() {
     const isOpen = !listPanel.classList.contains('collapsed');
     if (isOpen) {
+      // Clear search when closing the panel
+      if (searchInput && searchInput.value) {
+        searchInput.value = '';
+        searchQuery = '';
+        Render.setSearchQuery('');
+        renderList(Render.getEntries());
+        searchInput.blur();
+      }
       // Closing: apply ease-in class first, then collapse
       listPanel.classList.add('closing');
       listPanel.classList.add('collapsed');
