@@ -5,7 +5,11 @@ const Render = (() => {
   let canvas, ctx;
   let entries = [];
 
-  const CLUSTER_RADIUS = 18;
+  // CLUSTER_RADIUS: minimum screen-pixel gap between two independent markers.
+  // Must be large enough that markers at this distance don't visually collide.
+  // ~65px = width of a short label ("Big Bang", "Apollo 11") + padding.
+  // Entries closer than this merge into a numbered cluster badge.
+  const CLUSTER_RADIUS = 65;
   const GOLD  = '#E8962A';
   const WHITE = '#EDE8DC';
   const DIM   = 'rgba(237,232,220,0.72)';
@@ -538,23 +542,27 @@ const Render = (() => {
     const groups = cluster(visibleForCluster);
 
     ctx.font = '11px "Cinzel", serif'; // prime measureText
-    let lastLabelRight = -Infinity;
 
-    for (const group of groups) {
-      // avgX using cached positions
+    // Pre-compute positions and label-fit in a single pass so we can
+    // suppress only long labels that would still collide after clustering.
+    let lastLabelRight = -Infinity;
+    const draws = groups.map(group => {
       let sumX = 0;
       for (const e of group) sumX += cachedX(e);
-      const avgX = sumX / group.length;
+      return { group, avgX: sumX / group.length };
+    });
 
+    for (const { group, avgX } of draws) {
       if (group.length === 1) {
         const entry  = group[0];
         const textW  = ctx.measureText(entry.title).width;
         const lLeft  = avgX - textW / 2;
-        const showLabel = lLeft > lastLabelRight + 6;
+        const showLabel = lLeft > lastLabelRight + 4;
         if (showLabel) lastLabelRight = avgX + textW / 2;
         drawMarker(entry, avgX, showLabel);
       } else {
         drawCluster(group, avgX);
+        lastLabelRight = avgX + 14; // cluster badge width
       }
     }
 

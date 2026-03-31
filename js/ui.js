@@ -1004,8 +1004,22 @@ const UI = (() => {
   }
 
   // ── Wikipedia autocomplete ────────────────────────────────────────────────────
+  let wikiHighlightIdx = -1; // keyboard-nav position in suggestion list
+
   function hideWikiSuggestions() {
     if (wikiSuggestEl) wikiSuggestEl.classList.remove('open');
+    wikiHighlightIdx = -1;
+  }
+
+  function wikiItems() {
+    return wikiSuggestEl ? Array.from(wikiSuggestEl.querySelectorAll('li')) : [];
+  }
+
+  function setWikiHighlight(idx) {
+    const items = wikiItems();
+    items.forEach((li, i) => li.classList.toggle('wiki-active', i === idx));
+    wikiHighlightIdx = idx;
+    if (items[idx]) items[idx].scrollIntoView({ block: 'nearest' });
   }
 
   async function fetchWikiSuggestions(query) {
@@ -1013,22 +1027,56 @@ const UI = (() => {
     try {
       const url = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=6&format=json&origin=*`;
       const res = await fetch(url);
-      const [, titles, , urls] = await res.json();
+      const [, titles] = await res.json();
       if (!wikiSuggestEl) return;
       wikiSuggestEl.innerHTML = '';
+      wikiHighlightIdx = -1;
       if (!titles.length) { hideWikiSuggestions(); return; }
-      for (let i = 0; i < titles.length; i++) {
+      for (const title of titles) {
         const li = document.createElement('li');
-        li.textContent = titles[i];
-        li.dataset.title = titles[i];
-        li.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          selectWikiEntry(titles[i]);
-        });
+        li.textContent = title;
+        li.addEventListener('mousedown', (e) => { e.preventDefault(); selectWikiEntry(title); });
         wikiSuggestEl.appendChild(li);
       }
       wikiSuggestEl.classList.add('open');
     } catch { hideWikiSuggestions(); }
+  }
+
+  // Parse a Wikidata time value string like "+1969-07-20T00:00:00Z" or "-0066-01-01T00:00:00Z"
+  // Returns { ceYear, month, day } or null.
+  function parseWikidate(timeStr) {
+    if (!timeStr) return null;
+    const m = timeStr.match(/^([+-])(\d+)-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const sign   = m[1] === '-' ? -1 : 1;
+    const year   = sign * parseInt(m[2], 10);
+    const month  = parseInt(m[3], 10) || null;
+    const day    = parseInt(m[4], 10) || null;
+    return { ceYear: year, month: month || null, day: day || null };
+  }
+
+  // Fill one date section of the modal from a parsed wikidate.
+  function fillDateFields(prefix, parsed) {
+    if (!parsed) return;
+    const { ceYear, month, day } = parsed;
+    const unitEl  = modalForm.elements[`${prefix}Unit`];
+    const valueEl = modalForm.elements[`${prefix}Value`];
+    if (!unitEl || !valueEl) return;
+
+    if (ceYear > 0) {
+      unitEl.value  = 'CE';
+      valueEl.value = ceYear;
+      if (month && modalForm.elements[`${prefix}Month`])
+        modalForm.elements[`${prefix}Month`].value = month;
+      if (day && modalForm.elements[`${prefix}Day`])
+        modalForm.elements[`${prefix}Day`].value = day;
+    } else {
+      unitEl.value  = 'BCE';
+      valueEl.value = Math.abs(ceYear);
+    }
+    updateDatePrecision(unitEl,
+      document.getElementById(`${prefix === 'from' ? 'from' : 'to'}-precision`),
+      document.getElementById(`${prefix === 'from' ? 'from' : 'to'}-time`));
   }
 
   async function selectWikiEntry(title) {
@@ -1037,18 +1085,18 @@ const UI = (() => {
     if (titleEl) titleEl.value = title;
 
     try {
-      const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=extracts|pageimages&exintro=1&exsentences=3&piprop=original&format=json&origin=*`;
-      const res  = await fetch(url);
-      const data = await res.json();
-      const pages = data.query?.pages || {};
-      const page  = Object.values(pages)[0];
+      // Single request: summary, image, and wikibase item id
+      const wpUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=extracts|pageimages|pageprops&exintro=1&exsentences=3&piprop=original&ppprop=wikibase_item&format=json&origin=*`;
+      const wpRes  = await fetch(wpUrl);
+      const wpData = await wpRes.json();
+      const pages  = wpData.query?.pages || {};
+      const page   = Object.values(pages)[0];
       if (!page) return;
 
       // Fill summary
       if (page.extract) {
         const summaryEl = document.getElementById('f-summary');
         if (summaryEl && !summaryEl.value) {
-          // Strip HTML tags from extract
           const div = document.createElement('div');
           div.innerHTML = page.extract;
           summaryEl.value = (div.textContent || '').slice(0, 500).trim();
@@ -1056,10 +1104,52 @@ const UI = (() => {
       }
 
       // Store hero image URL
-      if (page.original?.source) {
-        wikiImageUrl = page.original.source;
+      if (page.original?.source) wikiImageUrl = page.original.source;
+
+      // Fetch dates from Wikidata
+      const qid = page.pageprops?.wikibase_item;
+      if (!qid) return;
+
+      const wdUrl  = `https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`;
+      const wdRes  = await fetch(wdUrl);
+      const wdData = await wdRes.json();
+      const entity = wdData.entities?.[qid];
+      if (!entity) return;
+
+      const claims = entity.claims || {};
+
+      // Date properties in priority order:
+      // P585=point in time, P571=inception, P569=birth, P580=start time, P582=end time, P570=death
+      function firstTime(pid) {
+        const arr = claims[pid];
+        if (!arr || !arr.length) return null;
+        return arr[0]?.mainsnak?.datavalue?.value?.time || null;
       }
-    } catch { /* network error — just skip */ }
+
+      const pointInTime = firstTime('P585');
+      const inception   = firstTime('P571');
+      const birth       = firstTime('P569');
+      const startTime   = firstTime('P580');
+      const endTime     = firstTime('P582');
+      const death       = firstTime('P570');
+
+      // Choose the most relevant "from" date
+      const fromRaw = pointInTime || inception || birth || startTime;
+      // "to" date only if it's a span
+      const toRaw   = (!pointInTime && !birth) ? (endTime || death) : null;
+
+      const fromParsed = parseWikidate(fromRaw);
+      const toParsed   = parseWikidate(toRaw);
+
+      if (fromParsed) {
+        fillDateFields('from', fromParsed);
+      }
+      if (toParsed) {
+        setToDateExpanded(true);
+        fillDateFields('to', toParsed);
+      }
+
+    } catch { /* network error — skip */ }
   }
 
   function initWikiAutocomplete() {
@@ -1068,13 +1158,31 @@ const UI = (() => {
     if (!titleEl || !wikiSuggestEl) return;
 
     titleEl.addEventListener('input', (e) => {
-      wikiImageUrl = null; // reset on new typing
+      wikiImageUrl = null;
       clearTimeout(wikiDebounceTimer);
       wikiDebounceTimer = setTimeout(() => fetchWikiSuggestions(e.target.value.trim()), 300);
     });
-    titleEl.addEventListener('blur', () => {
-      setTimeout(hideWikiSuggestions, 200);
+
+    titleEl.addEventListener('keydown', (e) => {
+      const items = wikiItems();
+      if (!items.length || !wikiSuggestEl.classList.contains('open')) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setWikiHighlight(Math.min(wikiHighlightIdx + 1, items.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setWikiHighlight(Math.max(wikiHighlightIdx - 1, 0));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (wikiHighlightIdx >= 0 && items[wikiHighlightIdx]) {
+          selectWikiEntry(items[wikiHighlightIdx].textContent);
+        }
+      } else if (e.key === 'Escape') {
+        hideWikiSuggestions();
+      }
     });
+
+    titleEl.addEventListener('blur', () => { setTimeout(hideWikiSuggestions, 200); });
     titleEl.addEventListener('focus', (e) => {
       if (e.target.value.trim().length >= 2) fetchWikiSuggestions(e.target.value.trim());
     });

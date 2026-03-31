@@ -1629,7 +1629,8 @@ html, body {
   transition: background 0.1s, color 0.1s;
 }
 
-.wiki-suggestions li:hover {
+.wiki-suggestions li:hover,
+.wiki-suggestions li.wiki-active {
   background: rgba(232, 150, 42, 0.10);
   color: var(--white);
 }
