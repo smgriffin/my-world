@@ -26,6 +26,14 @@
     <button id="add-btn" title="Add entry (A)">+</button>
     <button id="cards-btn" title="Cards: hover only (C)">▤</button>
     <button id="annotate-btn" title="Annotate (N)">✎</button>
+    <div id="export-btn-wrap">
+      <button id="export-btn" title="Export / Import">⇅</button>
+      <div id="export-menu">
+        <button class="export-item" id="export-snapshot">Snapshot PNG</button>
+        <button class="export-item" id="export-json">Export JSON</button>
+        <button class="export-item" id="import-json-btn">Import JSON</button>
+      </div>
+    </div>
     <button id="help-btn" aria-label="Keyboard shortcuts">?
       <div id="hotkey-tooltip" role="tooltip">
         <div class="hotkey-row"><kbd>A</kbd><span>Add entry</span></div>
@@ -36,8 +44,8 @@
         <div class="hotkey-row"><kbd>C</kbd><span>Toggle cards</span></div>
         <div class="hotkey-row"><kbd>Shift+Click</kbd><span>Connect markers</span></div>
         <div class="hotkey-row"><kbd>Backspace</kbd><span>Undo annotation</span></div>
+        <div class="hotkey-row"><kbd>Shift S</kbd><span>Snapshot PNG</span></div>
         <div class="hotkey-row"><kbd>Shift E</kbd><span>Export JSON</span></div>
-        <div class="hotkey-row"><kbd>Shift H</kbd><span>Export HTML</span></div>
         <div class="hotkey-row"><kbd>Shift I</kbd><span>Import JSON</span></div>
         <div class="hotkey-row"><kbd>Esc</kbd><span>Close / cancel</span></div>
         <div class="hotkey-row"><kbd>Scroll</kbd><span>Zoom</span></div>
@@ -47,8 +55,28 @@
     </button>
   </div>
 
+  <!-- Tag filter active pill -->
+  <div id="tag-filter-pill" aria-live="polite"></div>
+
   <!-- Card layer — positioned cards above markers -->
   <div id="card-layer"></div>
+
+  <!-- Annotation toolbar (shown when annotation mode is active) -->
+  <div id="annotation-toolbar" aria-hidden="true">
+    <button id="ann-tool-pen"   class="ann-tool active" title="Freehand">✎</button>
+    <button id="ann-tool-text"  class="ann-tool"        title="Text (type on canvas)">T</button>
+    <button id="ann-tool-line"  class="ann-tool"        title="Straight line">╱</button>
+    <button id="ann-tool-image" class="ann-tool"        title="Place image">⊞</button>
+    <div class="ann-sep"></div>
+    <button id="ann-undo"  title="Undo last (Backspace)">↩</button>
+    <button id="ann-clear" title="Clear all">✕</button>
+  </div>
+  <input type="file" id="ann-image-input" accept="image/*" style="display:none">
+
+  <!-- Annotation text input overlay (appears on canvas click in text mode) -->
+  <div id="ann-text-overlay" style="display:none">
+    <div id="ann-text-cursor" contenteditable="true" spellcheck="false"></div>
+  </div>
 
   <!-- Lightbox -->
   <div id="lightbox" aria-hidden="true">
@@ -71,114 +99,199 @@
   <!-- Modal -->
   <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div id="modal-box">
+
       <div id="modal-header">
         <h2 id="modal-title">Add Entry</h2>
+        <div id="modal-step-dots">
+          <button type="button" class="step-dot active" data-step="0" title="Identity"></button>
+          <button type="button" class="step-dot" data-step="1" title="Story"></button>
+        </div>
         <button id="modal-close" aria-label="Close">×</button>
       </div>
 
       <form id="modal-form" autocomplete="off">
 
-        <div class="field">
-          <label for="f-title">Title</label>
-          <input type="text" id="f-title" name="title" required placeholder="Event or person name">
-        </div>
+        <!-- ── Step 1: Identity ──────────────────────────────────────── -->
+        <div class="modal-step active" id="modal-step-0">
 
-        <div class="field">
-          <label for="f-from-value">From</label>
-          <div class="date-row">
-            <input type="number" id="f-from-value" name="fromValue" required min="0" step="any" placeholder="e.g. 1969">
-            <select id="f-from-unit" name="fromUnit">
-              <option value="CE">CE</option>
-              <option value="BCE">BCE</option>
-              <option value="ya">years ago</option>
-              <option value="kya">thousand years ago</option>
-              <option value="mya">million years ago</option>
-              <option value="bya">billion years ago</option>
-            </select>
+          <div class="field field-hero" style="position:relative">
+            <input type="text" id="f-title" name="title" required
+                   placeholder="Name this entry…" autocomplete="off">
+            <ul id="wiki-suggestions" class="wiki-suggestions" role="listbox"></ul>
           </div>
-        </div>
 
-        <div class="field">
-          <label for="f-to-value">To <span class="label-optional">(optional — for spans)</span></label>
-          <div class="date-row">
-            <input type="number" id="f-to-value" name="toValue" min="0" step="any" placeholder="Leave blank for a point event">
-            <select id="f-to-unit" name="toUnit">
-              <option value="CE">CE</option>
-              <option value="BCE">BCE</option>
-              <option value="ya">years ago</option>
-              <option value="kya">thousand years ago</option>
-              <option value="mya">million years ago</option>
-              <option value="bya">billion years ago</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="field-row">
           <div class="field">
-            <label for="f-type">Source Type</label>
-            <select id="f-type" name="type">
-              <option value="historical">Historical</option>
-              <option value="personal">Personal</option>
-            </select>
+            <label>When</label>
+            <div class="date-row">
+              <input type="number" id="f-from-value" name="fromValue"
+                     required min="0" step="any" placeholder="Year">
+              <select id="f-from-unit" name="fromUnit">
+                <option value="CE">CE</option>
+                <option value="BCE">BCE</option>
+                <option value="ya">years ago</option>
+                <option value="kya">thousand yrs ago</option>
+                <option value="mya">million yrs ago</option>
+                <option value="bya">billion yrs ago</option>
+              </select>
+            </div>
+            <div class="date-precision" id="from-precision">
+              <select id="f-from-month" name="fromMonth">
+                <option value="">Month</option>
+                <option value="1">January</option><option value="2">February</option>
+                <option value="3">March</option><option value="4">April</option>
+                <option value="5">May</option><option value="6">June</option>
+                <option value="7">July</option><option value="8">August</option>
+                <option value="9">September</option><option value="10">October</option>
+                <option value="11">November</option><option value="12">December</option>
+              </select>
+              <input type="number" id="f-from-day" name="fromDay" min="1" max="31" placeholder="Day">
+            </div>
+            <div class="time-precision" id="from-time">
+              <span class="time-sep">at</span>
+              <input type="number" id="f-from-hour" name="fromHour" min="0" max="23" placeholder="HH">
+              <span class="time-sep">:</span>
+              <input type="number" id="f-from-min" name="fromMin" min="0" max="59" placeholder="MM">
+            </div>
+            <button type="button" id="to-date-toggle-btn" class="btn-add-row">+ Span to end date</button>
+            <div id="to-date-section">
+              <div class="date-row">
+                <input type="number" id="f-to-value" name="toValue"
+                       min="0" step="any" placeholder="End year">
+                <select id="f-to-unit" name="toUnit">
+                  <option value="CE">CE</option>
+                  <option value="BCE">BCE</option>
+                  <option value="ya">years ago</option>
+                  <option value="kya">thousand yrs ago</option>
+                  <option value="mya">million yrs ago</option>
+                  <option value="bya">billion yrs ago</option>
+                </select>
+              </div>
+              <div class="date-precision" id="to-precision">
+                <select id="f-to-month" name="toMonth">
+                  <option value="">Month</option>
+                  <option value="1">January</option><option value="2">February</option>
+                  <option value="3">March</option><option value="4">April</option>
+                  <option value="5">May</option><option value="6">June</option>
+                  <option value="7">July</option><option value="8">August</option>
+                  <option value="9">September</option><option value="10">October</option>
+                  <option value="11">November</option><option value="12">December</option>
+                </select>
+                <input type="number" id="f-to-day" name="toDay" min="1" max="31" placeholder="Day">
+              </div>
+              <div class="time-precision" id="to-time">
+                <span class="time-sep">at</span>
+                <input type="number" id="f-to-hour" name="toHour" min="0" max="23" placeholder="HH">
+                <span class="time-sep">:</span>
+                <input type="number" id="f-to-min" name="toMin" min="0" max="59" placeholder="MM">
+              </div>
+            </div>
           </div>
+
           <div class="field">
-            <label for="f-entryType">Entry Type</label>
-            <select id="f-entryType" name="entryType">
-              <option value="Event">Event</option>
-              <option value="Person">Person</option>
-              <option value="Source">Source</option>
-              <option value="Location">Location</option>
-              <option value="Claim">Claim</option>
-            </select>
+            <label>Type</label>
+            <div class="type-picker" id="entry-type-picker">
+              <button type="button" class="type-opt active" data-value="Event">Event</button>
+              <button type="button" class="type-opt" data-value="Person">Person</button>
+              <button type="button" class="type-opt" data-value="Source">Source</button>
+              <button type="button" class="type-opt" data-value="Location">Location</button>
+              <button type="button" class="type-opt" data-value="Claim">Claim</button>
+            </div>
+            <input type="hidden" id="f-entryType" name="entryType" value="Event">
           </div>
-        </div>
 
-        <div class="field">
-          <label for="f-summary">Summary</label>
-          <textarea id="f-summary" name="summary" placeholder="Brief description…"></textarea>
-        </div>
-
-        <div class="field">
-          <label for="f-notes">Notes</label>
-          <textarea id="f-notes" name="notes" placeholder="Personal notes, context, questions…"></textarea>
-        </div>
-
-        <div class="field">
-          <label for="f-tags">Tags</label>
-          <input type="text" id="f-tags" name="tags" placeholder="Comma-separated: cosmology, origin, earth">
-        </div>
-
-        <div class="field">
-          <label>Connections <span class="label-optional">(links to other entries)</span></label>
-          <div id="connection-search-wrap">
-            <input type="text" id="connection-search" placeholder="Search entries to connect…" autocomplete="off" spellcheck="false">
-            <ul id="connection-suggestions"></ul>
+          <div id="modal-actions">
+            <button type="submit" class="btn-primary">Save</button>
+            <button type="button" class="btn-text" id="modal-next-btn">Details →</button>
+            <button type="button" class="btn-danger" id="modal-delete" style="display:none;">Delete</button>
           </div>
-          <div id="connection-chips"></div>
+
         </div>
 
-        <div class="field">
-          <label for="f-layout">Card Layout</label>
-          <select id="f-layout" name="layout">
-            <option value="compact">Compact — date, title, snippet</option>
-            <option value="article">Article — with hero photo</option>
-            <option value="feature">Feature — large photo &amp; full text</option>
-          </select>
-        </div>
+        <!-- ── Step 2: Story ─────────────────────────────────────────── -->
+        <div class="modal-step" id="modal-step-1">
 
-        <div class="field">
-          <label>Photos &amp; Files</label>
-          <div id="attachment-zone">
-            <span class="attachment-hint">Drop files here or <button type="button" id="attachment-browse">browse</button></span>
-            <input type="file" id="attachment-input" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.csv,.json" style="display:none">
+          <div class="field">
+            <label for="f-summary">Summary</label>
+            <textarea id="f-summary" name="summary" placeholder="Brief description…"></textarea>
           </div>
-          <div id="attachment-grid"></div>
-        </div>
 
-        <div id="modal-actions">
-          <button type="submit" class="btn-primary">Save</button>
-          <button type="button" class="btn-ghost" id="modal-cancel-btn">Cancel</button>
-          <button type="button" class="btn-danger" id="modal-delete" style="display:none;">Delete</button>
+          <div class="field">
+            <label for="f-notes">Notes</label>
+            <textarea id="f-notes" name="notes" placeholder="Personal notes, context, questions…"></textarea>
+          </div>
+
+          <div class="field">
+            <label for="f-tags">Tags</label>
+            <input type="text" id="f-tags" name="tags"
+                   placeholder="Comma-separated: cosmology, origin, earth">
+          </div>
+
+          <div class="field">
+            <label>Connections <span class="label-optional">links to other entries</span></label>
+            <div id="connection-search-wrap">
+              <input type="text" id="connection-search"
+                     placeholder="Search entries to connect…" autocomplete="off" spellcheck="false">
+              <ul id="connection-suggestions"></ul>
+            </div>
+            <div id="connection-chips"></div>
+          </div>
+
+          <div class="field">
+            <label>Media</label>
+            <div id="attachment-zone">
+              <span class="attachment-hint">Drop files here or
+                <button type="button" id="attachment-browse">browse</button></span>
+              <input type="file" id="attachment-input" multiple
+                     accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.csv,.json"
+                     style="display:none">
+            </div>
+            <div id="attachment-grid"></div>
+          </div>
+
+          <div class="field">
+            <label>Card Style</label>
+            <div class="layout-picker" id="layout-picker">
+              <button type="button" class="layout-opt active" data-value="compact">
+                <div class="layout-preview-icon">
+                  <div class="lp-line"></div>
+                  <div class="lp-line wide"></div>
+                  <div class="lp-line narrow"></div>
+                </div>
+                <span>Compact</span>
+              </button>
+              <button type="button" class="layout-opt" data-value="article">
+                <div class="layout-preview-icon">
+                  <div class="lp-img"></div>
+                  <div class="lp-line wide"></div>
+                  <div class="lp-line narrow"></div>
+                </div>
+                <span>Article</span>
+              </button>
+              <button type="button" class="layout-opt" data-value="feature">
+                <div class="layout-preview-icon">
+                  <div class="lp-img tall"></div>
+                  <div class="lp-line wide"></div>
+                </div>
+                <span>Feature</span>
+              </button>
+            </div>
+            <input type="hidden" id="f-layout" name="layout" value="compact">
+          </div>
+
+          <div class="field">
+            <label>Source</label>
+            <div class="toggle-pair" id="source-type-picker">
+              <button type="button" class="toggle-opt active" data-value="historical">Historical</button>
+              <button type="button" class="toggle-opt" data-value="personal">Personal</button>
+            </div>
+            <input type="hidden" id="f-type" name="type" value="historical">
+          </div>
+
+          <div id="modal-actions-2">
+            <button type="button" class="btn-ghost" id="modal-back-btn">← Back</button>
+            <button type="submit" class="btn-primary">Save</button>
+          </div>
+
         </div>
 
       </form>
@@ -215,6 +328,7 @@
       window.addEventListener('resize', sizeCanvas);
 
       Timeline.attach(canvas, (screenX, screenY, shiftKey) => {
+        if (document.getElementById('modal').classList.contains('open')) return;
         const entry = Timeline.hitTest(Render.getEntries(), screenX);
         if (!entry) return;
         if (shiftKey) UI.handleConnectClick(entry);
@@ -248,10 +362,6 @@
       UI.init();
       await UI.refresh();
       Sound.attachAutostart();
-
-      document.getElementById('modal-cancel-btn').addEventListener('click', () => {
-        document.getElementById('modal').classList.remove('open');
-      });
     })();
   </script>
 

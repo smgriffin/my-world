@@ -953,10 +953,19 @@ html, body {
   font-family: var(--font-head);
   font-size: 8px;
   letter-spacing: 0.1em;
-  color: rgba(232, 150, 42, 0.45);
-  border: 1px solid rgba(232, 150, 42, 0.18);
+  color: var(--tag-color, rgba(232, 150, 42, 0.55));
+  border: 1px solid color-mix(in srgb, var(--tag-color, #E8962A) 30%, transparent);
   padding: 2px 5px;
   text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  border-radius: 2px;
+}
+
+.entry-card-tag:hover,
+.entry-card-tag.active {
+  background: color-mix(in srgb, var(--tag-color, #E8962A) 18%, transparent);
+  color: var(--tag-color, #E8962A);
 }
 
 /* ── Card layouts — article & feature ─────────────────────────────────────── */
@@ -1084,4 +1093,586 @@ html, body {
   border-color: rgba(232, 150, 42, 0.55);
   background: rgba(232, 150, 42, 0.10);
   box-shadow: 0 0 8px rgba(232, 150, 42, 0.18);
+}
+
+/* ── Annotation toolbar ───────────────────────────────────────────────────── */
+#annotation-toolbar {
+  position: fixed;
+  top: 60px;
+  left: 20px;
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+  align-items: center;
+  z-index: 10;
+  background: rgba(4, 6, 10, 0.88);
+  border: 1px solid var(--border);
+  padding: 4px 6px;
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 0.18s, transform 0.18s;
+}
+
+#annotation-toolbar.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.ann-tool {
+  width: 26px;
+  height: 26px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(237, 232, 220, 0.40);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.ann-tool:hover {
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ann-tool.active {
+  color: var(--accent);
+  background: rgba(232, 150, 42, 0.10);
+  border-color: rgba(232, 150, 42, 0.35);
+}
+
+.ann-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
+#ann-undo,
+#ann-clear {
+  width: 26px;
+  height: 26px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(237, 232, 220, 0.40);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s;
+}
+
+#ann-undo:hover { color: var(--white); }
+#ann-clear:hover { color: #e06060; }
+
+/* ── Annotation text overlay ─────────────────────────────────────────────── */
+#ann-text-overlay {
+  position: fixed;
+  z-index: 15;
+  pointer-events: auto;
+}
+
+#ann-text-cursor {
+  font-family: 'Cinzel', serif;
+  font-size: 13px;
+  color: rgba(232, 150, 42, 0.92);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(232, 150, 42, 0.50);
+  outline: none;
+  caret-color: var(--accent);
+  white-space: pre;
+  min-width: 40px;
+  min-height: 1.4em;
+  padding: 2px 4px;
+  display: inline-block;
+}
+
+/* ── Card resize handle ───────────────────────────────────────────────────── */
+.card-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+  background: transparent;
+  transition: background 0.15s;
+  z-index: 2;
+}
+
+.entry-card:hover .card-resize-handle {
+  background: rgba(232, 150, 42, 0.10);
+}
+
+.entry-card.resizing {
+  transition: none !important;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ── Date precision row ───────────────────────────────────────────────────── */
+.date-precision {
+  display: none;
+  grid-template-columns: 1fr 72px;
+  gap: 0;
+  margin-top: 4px;
+}
+
+.date-precision.visible {
+  display: grid;
+}
+
+.date-precision select {
+  width: 100%;
+  border-right: none;
+  color: var(--dim);
+}
+
+.date-precision input {
+  width: 100%;
+  border-left: none;
+}
+
+/* ── Time precision row ───────────────────────────────────────────────────── */
+.time-precision {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.time-precision.visible {
+  display: flex;
+}
+
+.time-precision input {
+  width: 52px;
+  text-align: center;
+  padding: 8px 6px;
+}
+
+.time-sep {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: rgba(237, 232, 220, 0.35);
+  font-style: italic;
+  flex-shrink: 0;
+}
+
+/* ── Export / import dropdown ─────────────────────────────────────────────── */
+#export-btn-wrap {
+  position: relative;
+}
+
+#export-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: rgba(4, 6, 10, 0.97);
+  border: 1px solid var(--border);
+  min-width: 140px;
+  z-index: 20;
+  backdrop-filter: blur(12px);
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+#export-menu.open {
+  display: flex;
+}
+
+.export-item {
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-family: var(--font-head);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 9px 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.14s, background 0.14s;
+  white-space: nowrap;
+}
+
+.export-item:hover {
+  color: var(--accent);
+  background: rgba(232, 150, 42, 0.06);
+}
+
+/* ── Modal step system ────────────────────────────────────────────────────── */
+
+/* Step dots in header */
+#modal-step-dots {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  margin-left: auto;
+  padding-right: 12px;
+}
+
+.step-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(237, 232, 220, 0.18);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.step-dot.active {
+  background: var(--accent);
+  transform: scale(1.4);
+}
+
+.step-dot:hover:not(.active) {
+  background: rgba(237, 232, 220, 0.45);
+}
+
+/* Step panels */
+.modal-step {
+  display: none;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.modal-step.active {
+  display: flex;
+  animation: step-enter 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.modal-step.active.step-back {
+  animation: step-enter-back 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes step-enter {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes step-enter-back {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Hero title input ─────────────────────────────────────────────────────── */
+.field-hero {
+  margin-bottom: 4px;
+}
+
+.field-hero input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--white);
+  font-family: var(--font-head);
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  padding: 6px 0 10px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.field-hero input:focus {
+  border-bottom-color: rgba(232, 150, 42, 0.50);
+}
+
+.field-hero input::placeholder {
+  color: rgba(237, 232, 220, 0.20);
+  font-style: italic;
+  font-family: var(--font-body);
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+/* ── Type picker ──────────────────────────────────────────────────────────── */
+.type-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.type-opt {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: rgba(237, 232, 220, 0.45);
+  font-family: var(--font-head);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s, transform 0.1s;
+}
+
+.type-opt:hover {
+  border-color: rgba(232, 150, 42, 0.40);
+  color: var(--white);
+}
+
+.type-opt:active {
+  transform: scale(0.95);
+}
+
+.type-opt.active {
+  background: rgba(232, 150, 42, 0.10);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Toggle pair (Historical / Personal) ──────────────────────────────────── */
+.toggle-pair {
+  display: flex;
+}
+
+.toggle-opt {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: rgba(237, 232, 220, 0.40);
+  font-family: var(--font-head);
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, background 0.14s;
+}
+
+.toggle-opt:first-child {
+  border-right: none;
+}
+
+.toggle-opt:hover {
+  color: var(--white);
+  border-color: rgba(232, 150, 42, 0.35);
+}
+
+.toggle-opt.active {
+  background: rgba(232, 150, 42, 0.10);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Layout picker ────────────────────────────────────────────────────────── */
+.layout-picker {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.layout-opt {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: rgba(237, 232, 220, 0.40);
+  cursor: pointer;
+  padding: 10px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.14s, background 0.14s, color 0.14s, transform 0.1s;
+  font-family: var(--font-head);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.layout-opt:hover {
+  border-color: rgba(232, 150, 42, 0.40);
+  color: var(--dim);
+}
+
+.layout-opt:active {
+  transform: scale(0.97);
+}
+
+.layout-opt.active {
+  border-color: var(--accent);
+  background: rgba(232, 150, 42, 0.07);
+  color: var(--accent);
+}
+
+.layout-preview-icon {
+  width: 48px;
+  height: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 4px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.layout-opt.active .layout-preview-icon {
+  border-color: rgba(232, 150, 42, 0.18);
+}
+
+.lp-img {
+  width: 100%;
+  height: 14px;
+  background: rgba(232, 150, 42, 0.20);
+  flex-shrink: 0;
+}
+
+.lp-img.tall {
+  height: 22px;
+}
+
+.lp-line {
+  height: 2px;
+  background: rgba(237, 232, 220, 0.18);
+  border-radius: 1px;
+  width: 55%;
+}
+
+.lp-line.wide  { width: 85%; }
+.lp-line.narrow { width: 40%; }
+
+/* ── End date collapse ────────────────────────────────────────────────────── */
+.btn-add-row {
+  background: none;
+  border: none;
+  color: rgba(232, 150, 42, 0.42);
+  font-family: var(--font-head);
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 6px 0 2px;
+  text-align: left;
+  display: block;
+  transition: color 0.15s;
+}
+
+.btn-add-row:hover { color: var(--accent); }
+
+#to-date-section {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+#to-date-section.open { display: flex; }
+
+/* ── Step actions ─────────────────────────────────────────────────────────── */
+.btn-text {
+  background: none;
+  border: none;
+  color: rgba(237, 232, 220, 0.35);
+  font-family: var(--font-head);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 10px 6px;
+  transition: color 0.15s;
+}
+
+.btn-text:hover { color: var(--dim); }
+
+#modal-actions-2 {
+  display: flex;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Wikipedia suggestions dropdown ─────────────────────────────────────────── */
+.wiki-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.wiki-suggestions.open {
+  display: block;
+}
+
+.wiki-suggestions li {
+  padding: 8px 12px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--dim);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(237, 232, 220, 0.06);
+  transition: background 0.1s, color 0.1s;
+}
+
+.wiki-suggestions li:hover {
+  background: rgba(232, 150, 42, 0.10);
+  color: var(--white);
+}
+
+/* ── Tag filter pill ─────────────────────────────────────────────────────────── */
+#tag-filter-pill {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10, 9, 7, 0.90);
+  border: 1px solid var(--border);
+  padding: 5px 10px 5px 12px;
+  font-family: var(--font-head);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#tag-filter-pill.active {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.tag-filter-clear {
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 0 0 4px;
+  transition: color 0.1s;
+}
+
+.tag-filter-clear:hover {
+  color: var(--white);
 }

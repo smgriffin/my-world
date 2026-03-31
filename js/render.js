@@ -11,20 +11,80 @@ const Render = (() => {
   const DIM   = 'rgba(237,232,220,0.72)';
   const AXIS_H = 48;
 
+  // ── Tag colours ───────────────────────────────────────────────────────────────
+  const TAG_PALETTE = [
+    '#E8962A', // gold
+    '#4FC3F7', // sky blue
+    '#81C784', // sage green
+    '#F06292', // rose
+    '#CE93D8', // lavender
+    '#80CBC4', // teal
+    '#FFB74D', // amber
+    '#AED581', // lime
+    '#90CAF9', // cornflower
+    '#EF9A9A', // blush
+  ];
+
+  function tagColor(tag) {
+    let h = 0;
+    for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+    return TAG_PALETTE[h % TAG_PALETTE.length];
+  }
+
+  function entryColor(entry) {
+    const tags = entry.tags || [];
+    return tags.length ? tagColor(tags[0]) : GOLD;
+  }
+
+  // ── Tag filter ────────────────────────────────────────────────────────────────
+  let activeTagFilter = null;
+
+  function setTagFilter(tag) {
+    activeTagFilter = tag || null;
+    Timeline.markDirty();
+  }
+
+  function getTagFilter() { return activeTagFilter; }
+
   // ── Date label helper ─────────────────────────────────────────────────────────
-  // Converts internal "years ago" to an actual calendar year label.
   const CURRENT_YEAR = new Date().getFullYear();
+  const MS_PER_YEAR  = 365.25 * 24 * 3600 * 1000;
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-  function yearsAgoToLabel(yearsAgo) {
-    if (yearsAgo === 0) return 'Today';
-    const ceYear = CURRENT_YEAR - yearsAgo;
+  function yearsAgoToDate(yearsAgo) {
+    return new Date(Date.now() - yearsAgo * MS_PER_YEAR);
+  }
 
-    if (ceYear > 0) {
-      // CE — no suffix needed, context is obvious from increasing numbers
-      return Math.round(ceYear).toString();
+  function yearsAgoToLabel(yearsAgo, visibleSpan) {
+    if (yearsAgo <= 0) return 'Today';
+
+    // Sub-day: show HH:MM
+    if (visibleSpan < 1 / 365.25) {
+      const d = yearsAgoToDate(yearsAgo);
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
 
-    // BCE
+    // Sub-week: show "Mar 15 14:00" (date + hour)
+    if (visibleSpan < 7 / 365.25) {
+      const d = yearsAgoToDate(yearsAgo);
+      const time = d.getHours() !== 0
+        ? ` ${String(d.getHours()).padStart(2,'0')}:00`
+        : '';
+      return `${MON[d.getMonth()]} ${d.getDate()}${time}`;
+    }
+
+    // Sub-year: show "Mar 15" or "Mar" depending on density
+    if (visibleSpan < 1) {
+      const d = yearsAgoToDate(yearsAgo);
+      return visibleSpan < 2 / 12
+        ? `${MON[d.getMonth()]} ${d.getDate()}`
+        : `${MON[d.getMonth()]} ${d.getFullYear()}`;
+    }
+
+    // Year+
+    const ceYear = CURRENT_YEAR - yearsAgo;
+    if (ceYear > 0) return Math.round(ceYear).toString();
+
     const bce = Math.abs(Math.round(ceYear));
     if (bce >= 1_000_000_000) return `${(bce / 1e9).toFixed(1)}B BCE`;
     if (bce >= 1_000_000)     return `${Math.round(bce / 1e6)}M BCE`;
@@ -68,6 +128,18 @@ const Render = (() => {
     connectSourceId = id;
     Timeline.markDirty();
   }
+
+  // ── Connection visibility (driven by cards-always-on mode) ───────────────────
+  let connectionsVisible = false;
+
+  function setConnectionsVisible(on) {
+    connectionsVisible = on;
+    Timeline.markDirty();
+  }
+
+  // ── Annotation image cache ────────────────────────────────────────────────────
+  // Keyed by annotation id. null = loading in progress; HTMLImageElement = ready.
+  const annotImageCache = new Map();
 
   // ── Live annotation (screen coords — current stroke being drawn) ──────────────
   let liveAnnotationPoints = null; // [{x,y}] screen coords
@@ -127,11 +199,28 @@ const Render = (() => {
     ctx.stroke();
 
     const MIN_TICK_PX = 90;
-    const leftDate  = Timeline.xToDate(0);
-    const rightDate = Timeline.xToDate(w);
-    const minInterval = MIN_TICK_PX * (leftDate + 1) / Timeline.zoom;
+    const leftDate   = Timeline.xToDate(0);
+    const rightDate  = Timeline.xToDate(w);
+    const visibleSpan = Math.abs(leftDate - rightDate);
 
+    // minInterval in yearsAgo units for the current zoom level
+    const minInterval = MIN_TICK_PX * (rightDate + 1) / Timeline.zoom;
+
+    // Sub-day intervals (in years): 30min, 1h, 2h, 6h, 12h
+    // Sub-year: 1d, 2d, 1w, 2w, 1mo, 3mo, 6mo
     const NICE = [
+      1 / (365.25 * 24 * 2),   // 30 min
+      1 / (365.25 * 24),        // 1 hour
+      2 / (365.25 * 24),        // 2 hours
+      6 / (365.25 * 24),        // 6 hours
+      12 / (365.25 * 24),       // 12 hours
+      1 / 365.25,               // 1 day
+      2 / 365.25,               // 2 days
+      7 / 365.25,               // 1 week
+      14 / 365.25,              // 2 weeks
+      1 / 12,                   // ~1 month
+      1 / 4,                    // ~3 months
+      1 / 2,                    // ~6 months
       1, 2, 5, 10, 20, 50, 100, 200, 500,
       1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5,
       1e6, 2e6, 5e6, 1e7, 2e7, 5e7, 1e8, 2e8, 5e8,
@@ -140,7 +229,7 @@ const Render = (() => {
     const tickInterval = NICE.find(i => i >= minInterval) ?? NICE[NICE.length - 1];
 
     const start = Math.ceil(rightDate / tickInterval) * tickInterval;
-    const end   = Math.floor(leftDate / tickInterval) * tickInterval;
+    const end   = Math.floor(leftDate  / tickInterval) * tickInterval;
     if (!isFinite(start) || !isFinite(end) || end < start) return;
 
     ctx.fillStyle = DIM;
@@ -148,7 +237,7 @@ const Render = (() => {
     ctx.textAlign = 'center';
 
     let tickCount = 0;
-    for (let t = start; t <= end && tickCount < 30; t += tickInterval, tickCount++) {
+    for (let t = start; t <= end && tickCount < 40; t += tickInterval, tickCount++) {
       const x = Timeline.dateToX(t);
       if (x < -40 || x > w + 40) continue;
 
@@ -159,10 +248,28 @@ const Render = (() => {
       ctx.lineTo(x, axisY + 3);
       ctx.stroke();
 
-      const label = yearsAgoToLabel(t);
-
-      ctx.fillText(label, x, axisY + 16);
+      ctx.fillText(yearsAgoToLabel(t, visibleSpan), x, axisY + 16);
     }
+  }
+
+  // ── Viewport indicator ───────────────────────────────────────────────────────
+  // Shows the visible date range in the top-right corner.
+  function drawViewportIndicator() {
+    const w           = Timeline.canvasWidth;
+    const leftDate    = Timeline.xToDate(0);
+    const rightDate   = Timeline.xToDate(w);
+    const visibleSpan = Math.abs(leftDate - rightDate);
+
+    const leftLabel  = yearsAgoToLabel(leftDate,  visibleSpan);
+    const rightLabel = yearsAgoToLabel(rightDate, visibleSpan);
+    const label      = leftLabel === rightLabel ? leftLabel : `${rightLabel} — ${leftLabel}`;
+
+    ctx.save();
+    ctx.font      = '10px "Cinzel", serif';
+    ctx.fillStyle = 'rgba(237,232,220,0.22)';
+    ctx.textAlign = 'right';
+    ctx.fillText(label, w - 16, 22);
+    ctx.restore();
   }
 
   // ── Today marker ─────────────────────────────────────────────────────────────
@@ -195,26 +302,35 @@ const Render = (() => {
     const isHovered  = hoveredEntry && hoveredEntry.id === entry.id;
     const isSource   = connectSourceId === entry.id;
 
+    // Dim entries that don't match the active tag filter
+    const isFiltered = activeTagFilter &&
+      !(entry.tags || []).includes(activeTagFilter);
+    if (isFiltered) ctx.globalAlpha = 0.18;
+
+    const color = entryColor(entry);
+
     // Drop animation offset
     const dropY = getMarkerDropOffset(entry.id);
     const markerY = axisY - 2 + dropY;
 
-    // Connect-source ring — strong pulsing amber halo
+    // Connect-source ring — strong pulsing halo
     if (isSource) {
       const pulse = 0.18 + 0.12 * Math.sin(performance.now() / 400);
+      const [r, g, b] = hexToRgb(color);
       const ring = ctx.createRadialGradient(x, markerY, 0, x, markerY, 32);
-      ring.addColorStop(0,   `rgba(232,150,42,${(pulse * 2.2).toFixed(3)})`);
-      ring.addColorStop(0.5, `rgba(232,150,42,${pulse.toFixed(3)})`);
-      ring.addColorStop(1,   'rgba(232,150,42,0)');
+      ring.addColorStop(0,   `rgba(${r},${g},${b},${(pulse * 2.2).toFixed(3)})`);
+      ring.addColorStop(0.5, `rgba(${r},${g},${b},${pulse.toFixed(3)})`);
+      ring.addColorStop(1,   `rgba(${r},${g},${b},0)`);
       ctx.fillStyle = ring;
       ctx.fillRect(x - 32, markerY - 32, 64, 64);
     } else if (isHovered) {
       // Hover glow — soft radial pulse
       const pulse = 0.14 + 0.10 * Math.sin(performance.now() / 700);
+      const [r, g, b] = hexToRgb(color);
       const glow = ctx.createRadialGradient(x, markerY, 0, x, markerY, 22);
-      glow.addColorStop(0,   `rgba(232,150,42,${(pulse * 2).toFixed(3)})`);
-      glow.addColorStop(0.5, `rgba(232,150,42,${pulse.toFixed(3)})`);
-      glow.addColorStop(1,   'rgba(232,150,42,0)');
+      glow.addColorStop(0,   `rgba(${r},${g},${b},${(pulse * 2).toFixed(3)})`);
+      glow.addColorStop(0.5, `rgba(${r},${g},${b},${pulse.toFixed(3)})`);
+      glow.addColorStop(1,   `rgba(${r},${g},${b},0)`);
       ctx.fillStyle = glow;
       ctx.fillRect(x - 24, markerY - 24, 48, 48);
     }
@@ -222,13 +338,14 @@ const Render = (() => {
     // Span bar
     if (entry.yearEnd) {
       const x2 = Timeline.dateToX(entry.yearEnd);
-      ctx.fillStyle = (isHovered || isSource) ? 'rgba(232,150,42,0.32)' : 'rgba(232,150,42,0.14)';
+      const [r, g, b] = hexToRgb(color);
+      ctx.fillStyle = (isHovered || isSource) ? `rgba(${r},${g},${b},0.32)` : `rgba(${r},${g},${b},0.14)`;
       ctx.fillRect(Math.min(x, x2), axisY - 5, Math.abs(x2 - x), 5);
     }
 
     // Diamond — larger and bright white when it's the connect source
     const size = isSource ? 9 : isHovered ? 7 : 5;
-    ctx.fillStyle = isSource ? WHITE : isHovered ? GOLD : 'rgba(232,150,42,0.72)';
+    ctx.fillStyle = isSource ? WHITE : isHovered ? color : color + 'B8'; // B8 ≈ 72% opacity
     ctx.save();
     ctx.translate(x, markerY);
     ctx.rotate(Math.PI / 4);
@@ -241,10 +358,18 @@ const Render = (() => {
       ctx.font = `11px "Cinzel", serif`;
       ctx.fillStyle = (isHovered || isSource) ? WHITE : DIM;
       ctx.textAlign = 'center';
-      ctx.globalAlpha = (isHovered || isSource) ? 1 : 0.85;
+      ctx.globalAlpha = isFiltered ? 0.18 : (isHovered || isSource) ? 1 : 0.85;
       ctx.fillText(entry.title, x, labelY + dropY);
       ctx.globalAlpha = 1;
     }
+
+    if (isFiltered) ctx.globalAlpha = 1;
+  }
+
+  // Convert hex color (#RRGGBB) to [r, g, b]
+  function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
   // ── Draw cluster badge ────────────────────────────────────────────────────────
@@ -332,14 +457,24 @@ const Render = (() => {
         ctx.beginPath();
         ctx.moveTo(x1, axisY - 5);
         ctx.quadraticCurveTo(midX, cpY, x2, axisY - 5);
-        ctx.strokeStyle = isHot ? 'rgba(232,150,42,0.60)' : 'rgba(232,150,42,0.18)';
-        ctx.lineWidth   = isHot ? 1.5 : 0.8;
-        ctx.setLineDash(isHot ? [] : [3, 5]);
+        ctx.strokeStyle = isHot            ? 'rgba(232,150,42,0.72)'
+                        : connectionsVisible ? 'rgba(232,150,42,0.42)'
+                        : 'rgba(232,150,42,0.14)';
+        ctx.lineWidth   = isHot ? 1.5 : connectionsVisible ? 1.1 : 0.7;
+        ctx.setLineDash(isHot || connectionsVisible ? [] : [3, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
 
+        // Endpoint dots when connections are highlighted
+        if (connectionsVisible || isHot) {
+          const dotAlpha = isHot ? 0.75 : 0.40;
+          ctx.fillStyle = `rgba(232,150,42,${dotAlpha})`;
+          ctx.beginPath(); ctx.arc(x1, axisY - 5, 2.5, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(x2, axisY - 5, 2.5, 0, Math.PI * 2); ctx.fill();
+        }
+
         if (link.label && arcH > 18) {
-          ctx.fillStyle   = isHot ? 'rgba(232,150,42,0.65)' : 'rgba(232,150,42,0.28)';
+          ctx.fillStyle   = isHot ? 'rgba(232,150,42,0.72)' : 'rgba(232,150,42,0.38)';
           ctx.font        = '8px "Cinzel", serif';
           ctx.textAlign   = 'center';
           ctx.globalAlpha = 1;
@@ -360,6 +495,7 @@ const Render = (() => {
     Sound.applyZone(zone);
     drawTodayMarker();
     drawAxis();
+    drawViewportIndicator();
 
     if (entries.length === 0) {
       drawEmptyState();
@@ -452,46 +588,108 @@ const Render = (() => {
   }
 
   function drawAnnotations() {
-    const h    = Timeline.canvasHeight;
-    const all  = Annotations.getAll();
+    const h   = Timeline.canvasHeight;
+    const all = Annotations.getAll();
 
     ctx.save();
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
 
     for (const ann of all) {
-      if (!ann.points || ann.points.length < 2) continue;
-      ctx.beginPath();
-      ctx.strokeStyle = ann.color || 'rgba(232,150,42,0.60)';
-      ctx.lineWidth   = ann.strokeWidth || 1.5;
+      const color = ann.color || 'rgba(232,150,42,0.80)';
+      const sw    = ann.strokeWidth || 1.5;
 
-      const pts = ann.points;
-      ctx.moveTo(Timeline.dateToX(pts[0].year), pts[0].yFraction * h);
-      for (let i = 1; i < pts.length - 1; i++) {
-        const x1 = Timeline.dateToX(pts[i].year);
-        const y1 = pts[i].yFraction * h;
-        const x2 = Timeline.dateToX(pts[i + 1].year);
-        const y2 = pts[i + 1].yFraction * h;
-        ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+      if (ann.type === 'text') {
+        if (!ann.text) continue;
+        const x = Timeline.dateToX(ann.year);
+        const y = ann.yFraction * h;
+        ctx.font      = `${ann.fontSize || 13}px "Cinzel", serif`;
+        ctx.fillStyle = color;
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+        ctx.fillText(ann.text, x, y);
+
+      } else if (ann.type === 'line') {
+        const x1 = Timeline.dateToX(ann.x1year);
+        const y1 = ann.x1yFraction * h;
+        const x2 = Timeline.dateToX(ann.x2year);
+        const y2 = ann.x2yFraction * h;
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = sw;
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+      } else if (ann.type === 'image') {
+        if (!ann.data) continue;
+        const screenX = Timeline.dateToX(ann.year);
+        const screenY = ann.yFraction * h;
+
+        if (!annotImageCache.has(ann.id)) {
+          // Kick off async load; skip draw this frame
+          annotImageCache.set(ann.id, null);
+          const imgEl = new Image();
+          imgEl.onload = () => { annotImageCache.set(ann.id, imgEl); Timeline.markDirty(); };
+          imgEl.src = ann.data;
+          continue;
+        }
+        const imgEl = annotImageCache.get(ann.id);
+        if (!imgEl) continue; // still loading
+
+        const dispH   = (ann.displayH || 0.20) * h;
+        const aspect  = imgEl.naturalWidth / imgEl.naturalHeight;
+        const dispW   = dispH * aspect;
+        const left    = screenX - dispW / 2;
+        const top     = screenY - dispH / 2;
+
+        ctx.save();
+        ctx.drawImage(imgEl, left, top, dispW, dispH);
+        ctx.strokeStyle = 'rgba(232,150,42,0.32)';
+        ctx.lineWidth   = 1;
+        ctx.strokeRect(left, top, dispW, dispH);
+        ctx.restore();
+
+      } else {
+        // Freehand stroke
+        if (!ann.points || ann.points.length < 2) continue;
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = sw;
+        const pts = ann.points;
+        ctx.moveTo(Timeline.dateToX(pts[0].year), pts[0].yFraction * h);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const x1 = Timeline.dateToX(pts[i].year);
+          const y1 = pts[i].yFraction * h;
+          const x2 = Timeline.dateToX(pts[i + 1].year);
+          const y2 = pts[i + 1].yFraction * h;
+          ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+        }
+        const last = pts[pts.length - 1];
+        ctx.lineTo(Timeline.dateToX(last.year), last.yFraction * h);
+        ctx.stroke();
       }
-      const last = pts[pts.length - 1];
-      ctx.lineTo(Timeline.dateToX(last.year), last.yFraction * h);
-      ctx.stroke();
     }
 
-    // Live stroke (raw screen coords — not yet committed)
+    // Live stroke / line preview (raw screen coords — not yet committed)
     if (liveAnnotationPoints && liveAnnotationPoints.length > 1) {
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(232,150,42,0.80)';
       ctx.lineWidth   = 1.5;
       const lp = liveAnnotationPoints;
-      ctx.moveTo(lp[0].x, lp[0].y);
-      for (let i = 1; i < lp.length - 1; i++) {
-        const mx = (lp[i].x + lp[i + 1].x) / 2;
-        const my = (lp[i].y + lp[i + 1].y) / 2;
-        ctx.quadraticCurveTo(lp[i].x, lp[i].y, mx, my);
+      // If exactly 2 points it's a line preview; otherwise smooth stroke
+      if (lp.length === 2) {
+        ctx.moveTo(lp[0].x, lp[0].y);
+        ctx.lineTo(lp[1].x, lp[1].y);
+      } else {
+        ctx.moveTo(lp[0].x, lp[0].y);
+        for (let i = 1; i < lp.length - 1; i++) {
+          const mx = (lp[i].x + lp[i + 1].x) / 2;
+          const my = (lp[i].y + lp[i + 1].y) / 2;
+          ctx.quadraticCurveTo(lp[i].x, lp[i].y, mx, my);
+        }
+        ctx.lineTo(lp[lp.length - 1].x, lp[lp.length - 1].y);
       }
-      ctx.lineTo(lp[lp.length - 1].x, lp[lp.length - 1].y);
       ctx.stroke();
     }
 
@@ -580,5 +778,5 @@ const Render = (() => {
     return groups.filter(g => g.length === 1).map(g => ({ entry: g[0], x: tmpCachedX(g[0]) }));
   }
 
-  return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles, setConnectSource, setLiveAnnotation };
+  return { init, setEntries, getEntries, triggerMarkerDrop, getVisibleSingles, setConnectSource, setLiveAnnotation, setConnectionsVisible, setTagFilter, getTagFilter, tagColor };
 })();

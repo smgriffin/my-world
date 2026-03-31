@@ -12,6 +12,10 @@ const UI = (() => {
   let editingId = null;
   let searchQuery = '';
   let pendingAttachments = []; // { id, name, type, data }
+  let modalCurrentStep = 0;
+  let wikiImageUrl = null;     // hero image URL set by Wikipedia autocomplete
+  let wikiSuggestEl = null;
+  let wikiDebounceTimer = null;
 
   // ── Connect mode ─────────────────────────────────────────────────────────────
   let connectSourceEntry = null;
@@ -46,8 +50,13 @@ const UI = (() => {
 
   // ── Annotation mode ───────────────────────────────────────────────────────────
   let annotating       = false;
+  let annotTool        = 'pen'; // 'pen' | 'text' | 'line'
   let annotDrawing     = false;
   let annotLivePoints  = [];
+  let lineStart          = null;  // {x,y} first click for line tool
+  let textAnchor         = null;  // {x,y} canvas position for text placement
+  let imagePlacementPos  = null;  // {x,y} canvas position pending image pick
+  let annToolbarEl, annTextOverlayEl, annTextCursorEl, annImageInputEl;
 
   // ── Card layer ────────────────────────────────────────────────────────────────
   let cardsAlwaysOn  = false;
@@ -62,6 +71,58 @@ const UI = (() => {
   const CARD_ABOVE   = 38;   // px above axis where card bottom lands (keeps stem above the label)
   const LAYOUT_W     = { compact: 220, article: 260, feature: 320 };
 
+  // ── Card resize handle ────────────────────────────────────────────────────────
+  function addResizeHandle(cardEl, entryId) {
+    const LAYOUT_ORDER  = ['compact', 'article', 'feature'];
+    const THRESHOLDS    = [240, 290]; // midpoints between layout widths
+
+    const handle = document.createElement('div');
+    handle.className = 'card-resize-handle';
+    cardEl.appendChild(handle);
+
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX      = e.clientX;
+      const startLayout = cardEl.dataset.layout || 'compact';
+      const startW      = LAYOUT_W[startLayout];
+      let   curLayout   = startLayout;
+
+      cardEl.classList.add('resizing');
+      handle.setPointerCapture(e.pointerId);
+
+      function onMove(ev) {
+        const tentW    = startW + (ev.clientX - startX);
+        const newLayout = tentW < THRESHOLDS[0] ? 'compact'
+                        : tentW < THRESHOLDS[1] ? 'article'
+                        : 'feature';
+        if (newLayout !== curLayout) {
+          LAYOUT_ORDER.forEach(l => cardEl.classList.remove(`layout-${l}`));
+          cardEl.classList.add(`layout-${newLayout}`);
+          cardEl.style.width    = LAYOUT_W[newLayout] + 'px';
+          cardEl.dataset.layout = newLayout;
+          curLayout = newLayout;
+        }
+      }
+
+      async function onUp() {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup',   onUp);
+        cardEl.classList.remove('resizing');
+        if (curLayout !== startLayout) {
+          const entry = Render.getEntries().find(en => en.id === entryId);
+          if (entry) {
+            await Entries.update(entryId, { ...entry, layout: curLayout });
+            await refresh();
+          }
+        }
+      }
+
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup',   onUp);
+    });
+  }
+
   function buildCardEl(entry) {
     const layout = entry.layout || 'compact';
     const el = document.createElement('div');
@@ -70,12 +131,15 @@ const UI = (() => {
     el.dataset.layout = layout;
 
     const dateStr = entry.yearEnd
-      ? `${formatYear(entry.year)} – ${formatYear(entry.yearEnd)}`
-      : formatYear(entry.year);
+      ? `${formatYear(entry.year, entry.fromMonth, entry.fromDay, entry.fromHour, entry.fromMin)} – ${formatYear(entry.yearEnd, entry.toMonth, entry.toDay, entry.toHour, entry.toMin)}`
+      : formatYear(entry.year, entry.fromMonth, entry.fromDay, entry.fromHour, entry.fromMin);
 
     const tagsHtml = (entry.tags || []).length
-      ? `<div class="entry-card-tags">${entry.tags.map(t =>
-          `<span class="entry-card-tag">${t}</span>`).join('')}</div>`
+      ? `<div class="entry-card-tags">${entry.tags.map(t => {
+          const col = Render.tagColor(t);
+          const isActive = Render.getTagFilter() === t;
+          return `<span class="entry-card-tag${isActive ? ' active' : ''}" data-tag="${t}" style="--tag-color:${col}">${t}</span>`;
+        }).join('')}</div>`
       : '';
 
     if (layout === 'compact') {
@@ -88,7 +152,8 @@ const UI = (() => {
     } else {
       const photos  = entry.photos || [];
       const heroRaw = photos.find(p => typeof p === 'string' || (p.type && p.type.startsWith('image/')));
-      const heroSrc = heroRaw ? (typeof heroRaw === 'string' ? heroRaw : heroRaw.data) : null;
+      const heroSrc = heroRaw ? (typeof heroRaw === 'string' ? heroRaw : heroRaw.data)
+                              : (entry.image || null);
       el.innerHTML = `
         ${heroSrc ? `<div class="card-hero"><img src="${heroSrc}" alt=""></div>` : ''}
         <div class="card-body">
@@ -100,8 +165,43 @@ const UI = (() => {
       `;
     }
 
-    el.addEventListener('click', () => openEditModal(entry));
+    el.addEventListener('click', (e) => {
+      const tagEl = e.target.closest('.entry-card-tag');
+      if (tagEl) {
+        e.stopPropagation();
+        setTagFilter(tagEl.dataset.tag);
+        return;
+      }
+      openEditModal(entry);
+    });
+    addResizeHandle(el, entry.id);
     return el;
+  }
+
+  // ── Tag filter ────────────────────────────────────────────────────────────────
+  let tagFilterPillEl = null;
+
+  function setTagFilter(tag) {
+    const current = Render.getTagFilter();
+    const newTag = (current === tag) ? null : tag; // toggle off if same
+    Render.setTagFilter(newTag);
+    updateTagFilterPill(newTag);
+    // Re-render list with filter
+    renderList(Render.getEntries());
+  }
+
+  function updateTagFilterPill(tag) {
+    if (!tagFilterPillEl) return;
+    if (!tag) {
+      tagFilterPillEl.textContent = '';
+      tagFilterPillEl.classList.remove('active');
+      return;
+    }
+    const col = Render.tagColor(tag);
+    tagFilterPillEl.innerHTML =
+      `<span style="color:${col}">● ${tag}</span><button class="tag-filter-clear" title="Clear filter">×</button>`;
+    tagFilterPillEl.classList.add('active');
+    tagFilterPillEl.querySelector('.tag-filter-clear').addEventListener('click', () => setTagFilter(null));
   }
 
   function placeCard(cardEl, x) {
@@ -185,6 +285,7 @@ const UI = (() => {
     cardsAlwaysOn = on;
     cardsBtnEl.classList.toggle('active', on);
     cardsBtnEl.title = on ? 'Cards: always on (C)' : 'Cards: hover only (C)';
+    Render.setConnectionsVisible(on);
     if (on) {
       hideHoverCard();
       lastCardZoom = -1;
@@ -254,6 +355,24 @@ const UI = (() => {
     if (type.startsWith('video/')) return 'video';
     if (type.startsWith('audio/')) return 'audio';
     return 'document';
+  }
+
+  function resizeImage(file, maxDim = 900) {
+    return new Promise(resolve => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width  * scale);
+        const h = Math.round(img.height * scale);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve({ dataUrl: c.toDataURL('image/jpeg', 0.74), naturalW: w, naturalH: h });
+      };
+      img.src = url;
+    });
   }
 
   function readFileAsDataURL(file) {
@@ -476,27 +595,47 @@ const UI = (() => {
     }
   }
 
-  // Returns {value, unit} for pre-populating the edit form
+  const MS_PER_YEAR = 365.25 * 24 * 3600 * 1000;
+
+  // Returns a precise yearsAgo value using actual calendar math when month/day/time are known.
+  // This is what gets stored as entry.year — it's what positions the marker on the log scale.
+  // Without this, every event in 2025 lands at the same x pixel regardless of zoom level.
+  function toPreciseYearsAgo(ceYearVal, month, day, hour, min) {
+    const m  = month ? parseInt(month) - 1 : 0;
+    const d  = day   ? parseInt(day)       : 1;
+    const h  = hour  ? parseInt(hour)      : 0;
+    const mn = min   ? parseInt(min)       : 0;
+    const eventDate = new Date(parseInt(ceYearVal), m, d, h, mn, 0, 0);
+    return Math.max(0, (Date.now() - eventDate) / MS_PER_YEAR);
+  }
+
+  // Returns {value, unit} for pre-populating the edit form.
+  // Uses actual Date math for CE years so sub-year precision values
+  // (e.g. 0.241 yearsAgo = Dec 31 last year) recover the correct calendar year.
   function fromYearsAgo(yearsAgo) {
     if (yearsAgo == null) return { value: '', unit: 'CE' };
-    if (yearsAgo <= CURRENT_YEAR) {
-      const ceYear = CURRENT_YEAR - yearsAgo;
-      if (ceYear >= 1) return { value: Math.round(ceYear), unit: 'CE' };
-      return { value: Math.round(-ceYear + 1), unit: 'BCE' };
+    if (yearsAgo <= CURRENT_YEAR + 1) {
+      const date = new Date(Date.now() - yearsAgo * MS_PER_YEAR);
+      const yr   = date.getFullYear();
+      if (yr >= 1) return { value: yr, unit: 'CE' };
+      return { value: 1 - yr, unit: 'BCE' };
     }
-    if (yearsAgo < 10_000)       return { value: Math.round(yearsAgo),                 unit: 'ya' };
-    if (yearsAgo < 1_000_000)    return { value: +(yearsAgo / 1_000).toPrecision(4),   unit: 'kya' };
-    if (yearsAgo < 1_000_000_000) return { value: +(yearsAgo / 1_000_000).toPrecision(4), unit: 'mya' };
+    if (yearsAgo < 10_000)        return { value: Math.round(yearsAgo),                    unit: 'ya' };
+    if (yearsAgo < 1_000_000)     return { value: +(yearsAgo / 1_000).toPrecision(4),      unit: 'kya' };
+    if (yearsAgo < 1_000_000_000) return { value: +(yearsAgo / 1_000_000).toPrecision(4),  unit: 'mya' };
     return { value: +(yearsAgo / 1_000_000_000).toPrecision(4), unit: 'bya' };
   }
 
   // ── List panel ────────────────────────────────────────────────────────────────
   function renderList(entries) {
+    const tagFilter = Render.getTagFilter();
     const filtered = entries.filter(e =>
-      !searchQuery ||
-      e.title.toLowerCase().includes(searchQuery) ||
-      (e.summary || '').toLowerCase().includes(searchQuery) ||
-      (e.tags || []).some(t => t.toLowerCase().includes(searchQuery))
+      (!searchQuery ||
+        e.title.toLowerCase().includes(searchQuery) ||
+        (e.summary || '').toLowerCase().includes(searchQuery) ||
+        (e.tags || []).some(t => t.toLowerCase().includes(searchQuery))
+      ) &&
+      (!tagFilter || (e.tags || []).includes(tagFilter))
     );
 
     filtered.sort((a, b) => a.year - b.year);
@@ -507,7 +646,7 @@ const UI = (() => {
       li.className = 'list-item';
       li.dataset.id = entry.id;
       li.innerHTML = `
-        <span class="list-item-year">${formatYear(entry.year)}</span>
+        <span class="list-item-year">${formatYear(entry.year, entry.fromMonth, entry.fromDay, entry.fromHour, entry.fromMin)}</span>
         <span class="list-item-title">${entry.title}</span>
       `;
       li.addEventListener('click', () => openEditModal(entry));
@@ -515,12 +654,27 @@ const UI = (() => {
     }
   }
 
-  function formatYear(yearsAgo) {
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function formatYear(yearsAgo, month, day, hour, min) {
     if (yearsAgo == null) return '';
     if (yearsAgo === 0)   return 'Today';
     const ceYear = CURRENT_YEAR - yearsAgo;
 
-    if (ceYear > 0) return Math.round(ceYear).toString();
+    if (ceYear > 0) {
+      const yr = Math.round(ceYear);
+      if (month) {
+        const mo = MONTH_NAMES[parseInt(month) - 1];
+        let base = day ? `${mo} ${parseInt(day)}, ${yr}` : `${mo} ${yr}`;
+        if (hour != null && hour !== '') {
+          const h = String(parseInt(hour)).padStart(2, '0');
+          const m = min != null && min !== '' ? String(parseInt(min)).padStart(2, '0') : '00';
+          base += ` ${h}:${m}`;
+        }
+        return base;
+      }
+      return yr.toString();
+    }
 
     const bce = Math.abs(Math.round(ceYear));
     if (bce >= 1_000_000_000) return `${(bce / 1e9).toFixed(2)}B BCE`;
@@ -544,20 +698,92 @@ const UI = (() => {
     }
   }
 
+  // ── Modal step & picker helpers ───────────────────────────────────────────────
+  function goToModalStep(step) {
+    const prev = document.getElementById(`modal-step-${modalCurrentStep}`);
+    const next = document.getElementById(`modal-step-${step}`);
+    if (!next || prev === next) return;
+    if (prev) prev.classList.remove('active', 'step-back');
+    next.classList.remove('active', 'step-back');
+    if (step < modalCurrentStep) next.classList.add('step-back');
+    next.classList.add('active');
+    document.querySelectorAll('.step-dot').forEach((dot, i) => {
+      dot.classList.toggle('active', i === step);
+    });
+    modalCurrentStep = step;
+    // Populate connection suggestions when landing on details step
+    if (step === 1 && connSuggestEl) showConnectionSuggestions('');
+  }
+
+  function setPickerValue(pickerId, hiddenInputId, value) {
+    const picker = document.getElementById(pickerId);
+    const hidden = document.getElementById(hiddenInputId);
+    if (!picker || !hidden) return;
+    picker.querySelectorAll('[data-value]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.value === value);
+    });
+    hidden.value = value;
+  }
+
+  function setToDateExpanded(expanded) {
+    const section = document.getElementById('to-date-section');
+    const btn     = document.getElementById('to-date-toggle-btn');
+    if (!section || !btn) return;
+    section.classList.toggle('open', expanded);
+    btn.textContent = expanded ? '− Remove end date' : '+ Span to end date';
+    if (!expanded) {
+      if (modalForm.elements['toValue'])  modalForm.elements['toValue'].value  = '';
+      if (modalForm.elements['toMonth'])  modalForm.elements['toMonth'].value  = '';
+      if (modalForm.elements['toDay'])    modalForm.elements['toDay'].value    = '';
+      if (modalForm.elements['toHour'])   modalForm.elements['toHour'].value   = '';
+      if (modalForm.elements['toMin'])    modalForm.elements['toMin'].value    = '';
+      const toPrecEl = document.getElementById('to-precision');
+      if (toPrecEl) toPrecEl.classList.remove('visible');
+      const toTimeEl = document.getElementById('to-time');
+      if (toTimeEl) toTimeEl.classList.remove('visible');
+    }
+  }
+
   // ── Modal ─────────────────────────────────────────────────────────────────────
+  function updateDatePrecision(unitEl, precisionEl, timeEl) {
+    if (!precisionEl) return;
+    const show = unitEl.value === 'CE';
+    precisionEl.classList.toggle('visible', show);
+    if (timeEl) timeEl.classList.toggle('visible', show);
+    if (!show) {
+      const sel = precisionEl.querySelector('select');
+      const inp = precisionEl.querySelector('input');
+      if (sel) sel.value = '';
+      if (inp) inp.value = '';
+      if (timeEl) {
+        timeEl.querySelectorAll('input').forEach(i => { i.value = ''; });
+      }
+    }
+  }
+
   function openAddModal() {
     editingId = null;
     pendingAttachments = [];
     pendingConnections = [];
+    wikiImageUrl = null;
     modalTitle.textContent = 'Add Entry';
     modalDelete.style.display = 'none';
     modalForm.reset();
     modalForm.elements['fromUnit'].value = 'CE';
     modalForm.elements['toUnit'].value   = 'CE';
+    updateDatePrecision(modalForm.elements['fromUnit'], document.getElementById('from-precision'), document.getElementById('from-time'));
+    updateDatePrecision(modalForm.elements['toUnit'],   document.getElementById('to-precision'),   document.getElementById('to-time'));
+    setPickerValue('entry-type-picker', 'f-entryType', 'Event');
+    setPickerValue('layout-picker',      'f-layout',    'compact');
+    setPickerValue('source-type-picker', 'f-type',      'historical');
+    setToDateExpanded(false);
+    goToModalStep(0);
     if (connSearchEl) connSearchEl.value = '';
     renderAttachmentGrid();
     renderConnectionChips();
     modal.classList.add('open');
+    if (canvasEl) canvasEl.style.pointerEvents = 'none';
+    setTimeout(() => document.getElementById('f-title')?.focus(), 60);
   }
 
   function openEditModal(entry) {
@@ -581,21 +807,35 @@ const UI = (() => {
     modalForm.elements['fromUnit'].value  = from.unit;
     modalForm.elements['toValue'].value   = to.value;
     modalForm.elements['toUnit'].value    = to.unit;
-    modalForm.elements['type'].value      = entry.type      || 'historical';
-    modalForm.elements['entryType'].value = entry.entryType || 'Event';
     modalForm.elements['summary'].value   = entry.summary   || '';
     modalForm.elements['notes'].value     = entry.notes     || '';
     modalForm.elements['tags'].value      = (entry.tags || []).join(', ');
-    modalForm.elements['layout'].value   = entry.layout   || 'compact';
+    if (modalForm.elements['fromMonth']) modalForm.elements['fromMonth'].value = entry.fromMonth || '';
+    if (modalForm.elements['fromDay'])   modalForm.elements['fromDay'].value   = entry.fromDay   || '';
+    if (modalForm.elements['toMonth'])   modalForm.elements['toMonth'].value   = entry.toMonth   || '';
+    if (modalForm.elements['toDay'])     modalForm.elements['toDay'].value     = entry.toDay     || '';
+    if (modalForm.elements['fromHour'])  modalForm.elements['fromHour'].value  = entry.fromHour  || '';
+    if (modalForm.elements['fromMin'])   modalForm.elements['fromMin'].value   = entry.fromMin   || '';
+    if (modalForm.elements['toHour'])    modalForm.elements['toHour'].value    = entry.toHour    || '';
+    if (modalForm.elements['toMin'])     modalForm.elements['toMin'].value     = entry.toMin     || '';
+    updateDatePrecision(modalForm.elements['fromUnit'], document.getElementById('from-precision'), document.getElementById('from-time'));
+    updateDatePrecision(modalForm.elements['toUnit'],   document.getElementById('to-precision'),   document.getElementById('to-time'));
+    setPickerValue('entry-type-picker', 'f-entryType', entry.entryType || 'Event');
+    setPickerValue('layout-picker',      'f-layout',    entry.layout    || 'compact');
+    setPickerValue('source-type-picker', 'f-type',      entry.type      || 'historical');
+    setToDateExpanded(!!entry.yearEnd);
+    goToModalStep(0);
 
     if (connSearchEl) connSearchEl.value = '';
     renderAttachmentGrid();
     renderConnectionChips();
     modal.classList.add('open');
+    if (canvasEl) canvasEl.style.pointerEvents = 'none';
   }
 
   function closeModal() {
     modal.classList.remove('open');
+    if (canvasEl) canvasEl.style.pointerEvents = '';
     editingId = null;
   }
 
@@ -603,17 +843,49 @@ const UI = (() => {
     e.preventDefault();
     const f = modalForm.elements;
 
+    const fromCE    = f['fromUnit'].value === 'CE';
+    const toCE      = f['toUnit'].value   === 'CE';
+    const fromMonth = fromCE && f['fromMonth'] ? (f['fromMonth'].value || null) : null;
+    const fromDay   = fromCE && f['fromDay']   ? (f['fromDay'].value   || null) : null;
+    const fromHour  = fromCE && f['fromHour']  ? (f['fromHour'].value  || null) : null;
+    const fromMin   = fromCE && f['fromMin']   ? (f['fromMin'].value   || null) : null;
+    const toMonth   = toCE   && f['toMonth']   ? (f['toMonth'].value   || null) : null;
+    const toDay     = toCE   && f['toDay']     ? (f['toDay'].value     || null) : null;
+    const toHour    = toCE   && f['toHour']    ? (f['toHour'].value    || null) : null;
+    const toMin     = toCE   && f['toMin']     ? (f['toMin'].value     || null) : null;
+
+    // Use calendar-precise positioning when month is known (CE only).
+    // This ensures events on different days in the same year land at different
+    // x positions on the timeline and separate correctly as the user zooms in.
+    const year = (fromCE && fromMonth)
+      ? toPreciseYearsAgo(f['fromValue'].value, fromMonth, fromDay, fromHour, fromMin)
+      : toYearsAgo(f['fromValue'].value, f['fromUnit'].value);
+
+    const yearEnd = f['toValue'].value
+      ? ((toCE && toMonth)
+          ? toPreciseYearsAgo(f['toValue'].value, toMonth, toDay, toHour, toMin)
+          : toYearsAgo(f['toValue'].value, f['toUnit'].value))
+      : null;
+
     const entry = {
       title:     f['title'].value.trim(),
-      year:      toYearsAgo(f['fromValue'].value, f['fromUnit'].value),
-      yearEnd:   f['toValue'].value ? toYearsAgo(f['toValue'].value, f['toUnit'].value) : null,
+      year,
+      yearEnd,
+      fromMonth,
+      fromDay,
+      fromHour,
+      fromMin,
+      toMonth,
+      toDay,
+      toHour,
+      toMin,
       type:      f['type'].value,
       entryType: f['entryType'].value,
       layout:    f['layout'].value || 'compact',
       summary:   f['summary'].value.trim(),
       notes:     f['notes'].value.trim(),
       tags:      f['tags'].value.split(',').map(t => t.trim()).filter(Boolean),
-      image:     '',
+      image:     wikiImageUrl || '',
       photos:    [...pendingAttachments],
       links:     [...pendingConnections],
     };
@@ -649,6 +921,15 @@ const UI = (() => {
     Render.setEntries(all);
     renderList(all);
     if (cardsAlwaysOn) { lastCardZoom = -1; rebuildAlwaysOnCards(); }
+  }
+
+  // ── Snapshot ──────────────────────────────────────────────────────────────────
+  function snapshotTimeline() {
+    const canvas = document.getElementById('canvas');
+    const link   = document.createElement('a');
+    link.download = `my-world-${new Date().toISOString().slice(0, 10)}.png`;
+    link.href    = canvas.toDataURL('image/png');
+    link.click();
   }
 
   // ── Sound ─────────────────────────────────────────────────────────────────────
@@ -701,6 +982,9 @@ const UI = (() => {
       case 'Backspace':
         if (annotating) { Annotations.removeLast(); Timeline.markDirty(); }
         break;
+      case 'S':
+        if (e.shiftKey) snapshotTimeline();
+        break;
       case 'E':
         if (e.shiftKey) Entries.exportJSON();
         break;
@@ -713,9 +997,87 @@ const UI = (() => {
       case 'Escape':
         if (annotating) { setAnnotationMode(false); return; }
         if (connectSourceEntry) { cancelConnect(); return; }
+        if (Render.getTagFilter()) { setTagFilter(null); return; }
         if (!listPanel.classList.contains('collapsed')) toggleListPanel();
         break;
     }
+  }
+
+  // ── Wikipedia autocomplete ────────────────────────────────────────────────────
+  function hideWikiSuggestions() {
+    if (wikiSuggestEl) wikiSuggestEl.classList.remove('open');
+  }
+
+  async function fetchWikiSuggestions(query) {
+    if (!query || query.length < 2) { hideWikiSuggestions(); return; }
+    try {
+      const url = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=6&format=json&origin=*`;
+      const res = await fetch(url);
+      const [, titles, , urls] = await res.json();
+      if (!wikiSuggestEl) return;
+      wikiSuggestEl.innerHTML = '';
+      if (!titles.length) { hideWikiSuggestions(); return; }
+      for (let i = 0; i < titles.length; i++) {
+        const li = document.createElement('li');
+        li.textContent = titles[i];
+        li.dataset.title = titles[i];
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          selectWikiEntry(titles[i]);
+        });
+        wikiSuggestEl.appendChild(li);
+      }
+      wikiSuggestEl.classList.add('open');
+    } catch { hideWikiSuggestions(); }
+  }
+
+  async function selectWikiEntry(title) {
+    hideWikiSuggestions();
+    const titleEl = document.getElementById('f-title');
+    if (titleEl) titleEl.value = title;
+
+    try {
+      const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=extracts|pageimages&exintro=1&exsentences=3&piprop=original&format=json&origin=*`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      const pages = data.query?.pages || {};
+      const page  = Object.values(pages)[0];
+      if (!page) return;
+
+      // Fill summary
+      if (page.extract) {
+        const summaryEl = document.getElementById('f-summary');
+        if (summaryEl && !summaryEl.value) {
+          // Strip HTML tags from extract
+          const div = document.createElement('div');
+          div.innerHTML = page.extract;
+          summaryEl.value = (div.textContent || '').slice(0, 500).trim();
+        }
+      }
+
+      // Store hero image URL
+      if (page.original?.source) {
+        wikiImageUrl = page.original.source;
+      }
+    } catch { /* network error — just skip */ }
+  }
+
+  function initWikiAutocomplete() {
+    wikiSuggestEl = document.getElementById('wiki-suggestions');
+    const titleEl = document.getElementById('f-title');
+    if (!titleEl || !wikiSuggestEl) return;
+
+    titleEl.addEventListener('input', (e) => {
+      wikiImageUrl = null; // reset on new typing
+      clearTimeout(wikiDebounceTimer);
+      wikiDebounceTimer = setTimeout(() => fetchWikiSuggestions(e.target.value.trim()), 300);
+    });
+    titleEl.addEventListener('blur', () => {
+      setTimeout(hideWikiSuggestions, 200);
+    });
+    titleEl.addEventListener('focus', (e) => {
+      if (e.target.value.trim().length >= 2) fetchWikiSuggestions(e.target.value.trim());
+    });
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────────
@@ -743,8 +1105,10 @@ const UI = (() => {
     connSuggestEl    = document.getElementById('connection-suggestions');
     connChipsEl      = document.getElementById('connection-chips');
     canvasEl         = document.getElementById('canvas');
+    tagFilterPillEl  = document.getElementById('tag-filter-pill');
 
     addBtn.addEventListener('click', openAddModal);
+    initWikiAutocomplete();
     cardsBtnEl.addEventListener('click', () => setCardsAlwaysOn(!cardsAlwaysOn));
     annotateBtnEl.addEventListener('click', () => setAnnotationMode(!annotating));
 
@@ -757,6 +1121,37 @@ const UI = (() => {
     modalClose.addEventListener('click', closeModal);
     modalDelete.addEventListener('click', handleDelete);
     modalForm.addEventListener('submit', handleFormSubmit);
+
+    // ── Step navigation ───────────────────────────────────────────────────────
+    document.getElementById('modal-next-btn').addEventListener('click', () => goToModalStep(1));
+    document.getElementById('modal-back-btn').addEventListener('click', () => goToModalStep(0));
+    document.querySelectorAll('.step-dot').forEach((dot, i) => {
+      dot.addEventListener('click', () => goToModalStep(i));
+    });
+
+    // ── Entry type picker ─────────────────────────────────────────────────────
+    document.getElementById('entry-type-picker').querySelectorAll('.type-opt').forEach(btn => {
+      btn.addEventListener('click', () =>
+        setPickerValue('entry-type-picker', 'f-entryType', btn.dataset.value));
+    });
+
+    // ── Layout picker ─────────────────────────────────────────────────────────
+    document.getElementById('layout-picker').querySelectorAll('.layout-opt').forEach(btn => {
+      btn.addEventListener('click', () =>
+        setPickerValue('layout-picker', 'f-layout', btn.dataset.value));
+    });
+
+    // ── Source type toggle ────────────────────────────────────────────────────
+    document.getElementById('source-type-picker').querySelectorAll('.toggle-opt').forEach(btn => {
+      btn.addEventListener('click', () =>
+        setPickerValue('source-type-picker', 'f-type', btn.dataset.value));
+    });
+
+    // ── End date toggle ───────────────────────────────────────────────────────
+    document.getElementById('to-date-toggle-btn').addEventListener('click', () => {
+      const section = document.getElementById('to-date-section');
+      setToDateExpanded(!section.classList.contains('open'));
+    });
 
     // ── Attachment zone events ────────────────────────────────────────────────
     attachmentZone.addEventListener('click', () => attachmentInput.click());
@@ -824,11 +1219,15 @@ const UI = (() => {
 
     // ── Canvas interaction — hover cards, cursor, connect, annotation ─────────
     canvasEl.addEventListener('mousemove', (e) => {
-      // Annotation drawing
-      if (annotating && annotDrawing) {
+      // Pen tool: record live stroke
+      if (annotating && annotDrawing && annotTool === 'pen') {
         annotLivePoints.push({ x: e.clientX, y: e.clientY });
         Render.setLiveAnnotation([...annotLivePoints]);
         return;
+      }
+      // Line tool: live preview from first point to cursor
+      if (annotating && annotTool === 'line' && lineStart) {
+        Render.setLiveAnnotation([lineStart, { x: e.clientX, y: e.clientY }]);
       }
 
       const entry = Timeline.hitTest(Render.getEntries(), e.clientX, 20);
@@ -854,17 +1253,41 @@ const UI = (() => {
       if (!connectSourceEntry && !annotating) canvasEl.style.cursor = '';
     });
 
-    // Annotation: start stroke on mousedown
+    // Annotation: tool interactions on mousedown
     canvasEl.addEventListener('mousedown', (e) => {
       if (!annotating || e.button !== 0) return;
-      annotDrawing    = true;
-      annotLivePoints = [{ x: e.clientX, y: e.clientY }];
-      Timeline.markDirty();
+      if (annotTool === 'pen') {
+        annotDrawing    = true;
+        annotLivePoints = [{ x: e.clientX, y: e.clientY }];
+        Timeline.markDirty();
+      } else if (annotTool === 'text') {
+        showTextOverlay(e.clientX, e.clientY);
+      } else if (annotTool === 'image') {
+        imagePlacementPos = { x: e.clientX, y: e.clientY };
+        annImageInputEl.click();
+      } else if (annotTool === 'line') {
+        if (!lineStart) {
+          lineStart = { x: e.clientX, y: e.clientY };
+          Render.setLiveAnnotation([lineStart, lineStart]);
+        } else {
+          const x2 = e.clientX, y2 = e.clientY;
+          Annotations.add({
+            type:         'line',
+            x1year:       Timeline.xToDate(lineStart.x),
+            x1yFraction:  lineStart.y / Timeline.canvasHeight,
+            x2year:       Timeline.xToDate(x2),
+            x2yFraction:  y2 / Timeline.canvasHeight,
+          });
+          lineStart = null;
+          Render.setLiveAnnotation(null);
+          Timeline.markDirty();
+        }
+      }
     });
 
-    // Annotation: commit stroke on mouseup (window-level to catch releases outside canvas)
+    // Annotation: commit pen stroke on mouseup (window-level for releases outside canvas)
     window.addEventListener('mouseup', () => {
-      if (!annotating || !annotDrawing) return;
+      if (!annotating || !annotDrawing || annotTool !== 'pen') return;
       annotDrawing = false;
       if (annotLivePoints.length > 1) {
         Annotations.add({
@@ -877,6 +1300,109 @@ const UI = (() => {
       annotLivePoints = [];
       Render.setLiveAnnotation(null);
     });
+
+    // ── Annotation toolbar ────────────────────────────────────────────────────
+    annToolbarEl     = document.getElementById('annotation-toolbar');
+    annTextOverlayEl = document.getElementById('ann-text-overlay');
+    annTextCursorEl  = document.getElementById('ann-text-cursor');
+    annImageInputEl  = document.getElementById('ann-image-input');
+
+    for (const btn of annToolbarEl.querySelectorAll('.ann-tool')) {
+      btn.addEventListener('click', () => {
+        annotTool = btn.id === 'ann-tool-pen'   ? 'pen'
+                  : btn.id === 'ann-tool-text'  ? 'text'
+                  : btn.id === 'ann-tool-image' ? 'image'
+                  : 'line';
+        annToolbarEl.querySelectorAll('.ann-tool').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        lineStart = null;
+        Render.setLiveAnnotation(null);
+        if (annotTool !== 'text') hideTextOverlay();
+      });
+    }
+
+    annImageInputEl.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file || !imagePlacementPos) { imagePlacementPos = null; return; }
+      const pos = imagePlacementPos;
+      imagePlacementPos = null;
+      const { dataUrl, naturalW, naturalH } = await resizeImage(file);
+      Annotations.add({
+        type:      'image',
+        year:      Timeline.xToDate(pos.x),
+        yFraction: pos.y / Timeline.canvasHeight,
+        data:      dataUrl,
+        naturalW,
+        naturalH,
+        displayH:  0.20,
+      });
+      Timeline.markDirty();
+    });
+
+    document.getElementById('ann-undo').addEventListener('click', () => {
+      Annotations.removeLast();
+      Timeline.markDirty();
+    });
+    document.getElementById('ann-clear').addEventListener('click', () => {
+      Annotations.removeAll();
+      Timeline.markDirty();
+    });
+
+    annTextCursorEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        const text = annTextCursorEl.textContent.trim();
+        if (text && textAnchor) {
+          Annotations.add({
+            type:      'text',
+            year:      Timeline.xToDate(textAnchor.x),
+            yFraction: textAnchor.y / Timeline.canvasHeight,
+            text,
+            fontSize:  13,
+          });
+          Timeline.markDirty();
+        }
+        hideTextOverlay();
+      } else if (e.key === 'Escape') {
+        e.stopPropagation();
+        hideTextOverlay();
+      }
+    });
+
+    // ── Date precision show/hide ──────────────────────────────────────────────
+    const fromUnitEl = modalForm.elements['fromUnit'];
+    const toUnitEl   = modalForm.elements['toUnit'];
+    const fromPrecEl = document.getElementById('from-precision');
+    const toPrecEl   = document.getElementById('to-precision');
+    const fromTimeEl = document.getElementById('from-time');
+    const toTimeEl   = document.getElementById('to-time');
+    fromUnitEl.addEventListener('change', () => updateDatePrecision(fromUnitEl, fromPrecEl, fromTimeEl));
+    toUnitEl.addEventListener('change',   () => updateDatePrecision(toUnitEl,   toPrecEl,   toTimeEl));
+
+    // ── Export / import menu ──────────────────────────────────────────────────
+    const exportBtnWrap = document.getElementById('export-btn-wrap');
+    const exportMenu    = document.getElementById('export-menu');
+
+    document.getElementById('export-btn').addEventListener('click', () => {
+      exportMenu.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!exportBtnWrap.contains(e.target)) exportMenu.classList.remove('open');
+    });
+    document.getElementById('export-snapshot').addEventListener('click', () => {
+      exportMenu.classList.remove('open');
+      snapshotTimeline();
+    });
+    document.getElementById('export-json').addEventListener('click', () => {
+      exportMenu.classList.remove('open');
+      Entries.exportJSON();
+    });
+    document.getElementById('import-json-btn').addEventListener('click', () => {
+      exportMenu.classList.remove('open');
+      importInput.click();
+    });
   }
 
   function setAnnotationMode(on) {
@@ -884,13 +1410,32 @@ const UI = (() => {
     Timeline.setPanEnabled(!on);
     annotateBtnEl.classList.toggle('active', on);
     annotateBtnEl.title = on ? 'Stop annotating (N)' : 'Annotate (N)';
+    if (annToolbarEl) annToolbarEl.classList.toggle('visible', on);
     if (canvasEl) canvasEl.style.cursor = on ? 'crosshair' : '';
     if (!on) {
-      annotDrawing    = false;
-      annotLivePoints = [];
+      annotDrawing      = false;
+      annotLivePoints   = [];
+      lineStart         = null;
+      imagePlacementPos = null;
       Render.setLiveAnnotation(null);
+      hideTextOverlay();
     }
     if (on) hideHoverCard();
+  }
+
+  function showTextOverlay(x, y) {
+    if (!annTextOverlayEl) return;
+    textAnchor = { x, y };
+    annTextOverlayEl.style.left    = x + 'px';
+    annTextOverlayEl.style.top     = y + 'px';
+    annTextOverlayEl.style.display = 'block';
+    annTextCursorEl.textContent    = '';
+    annTextCursorEl.focus();
+  }
+
+  function hideTextOverlay() {
+    if (annTextOverlayEl) annTextOverlayEl.style.display = 'none';
+    textAnchor = null;
   }
 
   return { init, refresh, openEditModal, handleConnectClick };

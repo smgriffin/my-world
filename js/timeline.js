@@ -15,9 +15,9 @@ const Timeline = (() => {
   let canvasWidth = window.innerWidth;
   let canvasHeight = window.innerHeight;
 
-  // Default view: ~500 years of history, "Now" near the right edge.
-  // This puts the opening view squarely in the modern era.
-  const DEFAULT_SPAN   = 500;   // years visible on first load
+  // Default view: ~50 years of history, "Now" near the right edge.
+  // This puts the opening view squarely in the present era.
+  const DEFAULT_SPAN   = 50;   // years visible on first load
   const RIGHT_MARGIN   = 0.08;  // fraction of width kept as breathing room on the right
 
   function initialZoom(w) {
@@ -112,7 +112,10 @@ const Timeline = (() => {
 
   // ── Zoom (wheel) ──────────────────────────────────────────────────────────────
   // Zoom anchored to cursor position so the date under the cursor stays fixed.
-  const MAX_ZOOM = 1_000_000;
+  // Max zoom: enough to show ~30 minutes of time across the full canvas.
+  // log(30min in years + 1) ≈ log(0.0000570 + 1) ≈ 0.0000570
+  // At 1400px width: zoom_needed ≈ 1288 / 0.0000570 ≈ 22,600,000
+  const MAX_ZOOM = 25_000_000;
 
   function minZoom() {
     return canvasWidth / LOG_BASE / 8;
@@ -128,13 +131,33 @@ const Timeline = (() => {
 
   function onWheel(e) {
     e.preventDefault();
+
+    // Any user scroll gesture cancels in-flight pan/zoom animations so they
+    // don't overwrite the anchor position we're about to set.
+    if (panRaf)    { cancelAnimationFrame(panRaf);    panRaf    = null; }
+    if (dblZoomRaf){ cancelAnimationFrame(dblZoomRaf); dblZoomRaf = null; }
+
+    const ax = Math.abs(e.deltaX);
+    const ay = Math.abs(e.deltaY);
+
+    // Horizontal trackpad swipe → pan (Google Maps behaviour).
+    // Treat as pan when deltaX is dominant. Only pan, don't also zoom.
+    if (ax > ay && ax > 1) {
+      panX += e.deltaX;
+      clampPan();
+      dirty = true;
+      return;
+    }
+
+    // Vertical scroll or pinch → zoom anchored to cursor.
+    if (ay < 1) return; // dead-zone: ignore near-zero deltas
     const cursorX = e.clientX;
     const dateUnderCursor = xToDate(cursorX);
 
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
     zoom = Math.min(MAX_ZOOM, Math.max(minZoom(), zoom * factor));
 
-    // Re-anchor: cursor should still point at dateUnderCursor
+    // Re-anchor: the date that was under the cursor must stay there after zoom.
     const logVal = Math.log(Math.max(1, dateUnderCursor + 1));
     panX = (LOG_BASE - logVal) * zoom - cursorX;
     clampPan();
@@ -163,6 +186,7 @@ const Timeline = (() => {
 
   function animateZoomTo(targetZoom, anchorX) {
     if (dblZoomRaf) cancelAnimationFrame(dblZoomRaf);
+    if (panRaf)     { cancelAnimationFrame(panRaf); panRaf = null; }
     const startZoom = zoom;
     const startPan  = panX;
     const dateAtAnchor = xToDate(anchorX);
@@ -194,8 +218,35 @@ const Timeline = (() => {
       clearTimeout(clickTimer);
       clickTimer = null;
     }
-    const targetZoom = Math.min(MAX_ZOOM, zoom * 2.5);
+    const targetZoom = Math.min(MAX_ZOOM, zoom * 6);
     animateZoomTo(targetZoom, e.clientX);
+  }
+
+  // ── Set view span (animated) ──────────────────────────────────────────────────
+  // Animates zoom + pan so that 'yearsSpan' years fill the visible area,
+  // with "now" anchored at the right-margin position.
+  function setViewSpan(yearsSpan) {
+    if (panRaf)     cancelAnimationFrame(panRaf);
+    if (dblZoomRaf) { cancelAnimationFrame(dblZoomRaf); dblZoomRaf = null; }
+    const logSpan    = Math.log(Math.max(yearsSpan, 1 / 365.25) + 1);
+    const targetZoom = Math.min(MAX_ZOOM, Math.max(minZoom(), canvasWidth * (1 - 2 * RIGHT_MARGIN) / logSpan));
+    const targetPan  = initialPanX(canvasWidth, targetZoom);
+    const startZoom  = zoom;
+    const startPan   = panX;
+    const steps      = 26;
+    let   step       = 0;
+
+    function tick() {
+      step++;
+      const t    = step / steps;
+      const ease = 1 - Math.pow(1 - t, 4);
+      zoom = startZoom + (targetZoom - startZoom) * ease;
+      panX = startPan  + (targetPan  - startPan)  * ease;
+      clampPan();
+      dirty = true;
+      if (step < steps) panRaf = requestAnimationFrame(tick);
+    }
+    tick();
   }
 
   // ── Pan to date (animated) ────────────────────────────────────────────────────
@@ -203,7 +254,8 @@ const Timeline = (() => {
   let panRaf = null;
 
   function panToDate(yearsAgo) {
-    if (panRaf) cancelAnimationFrame(panRaf);
+    if (panRaf)     cancelAnimationFrame(panRaf);
+    if (dblZoomRaf) { cancelAnimationFrame(dblZoomRaf); dblZoomRaf = null; }
     const logVal    = Math.log(Math.max(1, yearsAgo + 1));
     const targetPan = (LOG_BASE - logVal) * zoom - canvasWidth / 2;
     const startPan  = panX;
@@ -241,7 +293,7 @@ const Timeline = (() => {
 
     if (visibleSpan > 50_000_000)      return 'cosmic';
     if (visibleSpan > 10_000)          return 'geological';
-    if (visibleSpan > 200)             return 'ancient';
+    if (visibleSpan > 1_000)            return 'ancient';
     return 'modern';
   }
 
@@ -261,6 +313,7 @@ const Timeline = (() => {
     hitTest,
     currentZone,
     panToDate,
+    setViewSpan,
     setPanEnabled,
     LOG_BASE,
     BIG_BANG_YEARS_AGO,

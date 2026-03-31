@@ -178,38 +178,42 @@ const Background = (() => {
   }
 
   function drawModern(ctx, w, h) {
-    const img = loaded.modern;
-    if (img) {
-      // Modern texture is small and seamlessly tileable — tile it
-      const pat = ctx.createPattern(img, 'repeat');
-      if (pat) {
-        ctx.fillStyle = pat;
-        ctx.globalAlpha = 0.28; // very subtle — just kills flat black
-        ctx.fillRect(0, 0, w, h);
-        ctx.globalAlpha = 1;
-      }
+    // Deep clinical base — Bloomberg/FT terminal dark
+    ctx.fillStyle = '#030509';
+    ctx.fillRect(0, 0, w, h);
+
+    // Subtle header gradient — slightly lighter at top, like a news layout
+    const head = ctx.createLinearGradient(0, 0, 0, h * 0.30);
+    head.addColorStop(0, 'rgba(10,16,28,0.60)');
+    head.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = head;
+    ctx.fillRect(0, 0, w, h);
+
+    // Data grid: horizontal reference lines (financial chart aesthetic)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(45,62,90,0.20)';
+    ctx.lineWidth   = 1;
+    const gridRows = 7;
+    const gridStep = Math.round(h / gridRows);
+    for (let y = gridStep; y < h - 30; y += gridStep) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
     }
+    ctx.restore();
 
-    // Primary dark field on top
-    const base = ctx.createLinearGradient(0, 0, 0, h);
-    base.addColorStop(0,   'rgba(6,8,14,0.90)');
-    base.addColorStop(0.5, 'rgba(8,9,13,0.88)');
-    base.addColorStop(1,   'rgba(10,9,8,0.88)');
-    ctx.fillStyle = base;
+    // Ground shadow — anchors the timeline axis
+    const ground = ctx.createLinearGradient(0, h * 0.70, 0, h);
+    ground.addColorStop(0, 'rgba(0,0,0,0)');
+    ground.addColorStop(1, 'rgba(2,4,10,0.55)');
+    ctx.fillStyle = ground;
     ctx.fillRect(0, 0, w, h);
 
-    // Faint horizon glow — grounded, editorial
-    const horizon = ctx.createRadialGradient(w * 0.50, h * 0.82, 0, w * 0.50, h * 0.82, w * 0.70);
-    horizon.addColorStop(0,    'rgba(48,58,80,0.08)');
-    horizon.addColorStop(0.55, 'rgba(28,36,52,0.04)');
-    horizon.addColorStop(1,    'rgba(0,0,0,0)');
-    ctx.fillStyle = horizon;
-    ctx.fillRect(0, 0, w, h);
-
-    // Corner vignette
-    const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.22, w / 2, h / 2, h * 0.96);
+    // Corner vignette — keeps eye centred
+    const vig = ctx.createRadialGradient(w / 2, h / 2, h * 0.30, w / 2, h / 2, h * 0.90);
     vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, 'rgba(0,0,0,0.46)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.48)');
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, w, h);
   }
