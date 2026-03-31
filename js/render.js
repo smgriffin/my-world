@@ -68,16 +68,14 @@ const Render = (() => {
       return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
 
-    // Sub-week: show "Mar 15 14:00" (date + hour)
+    // Sub-week: show "Mar 15 14:00"
     if (visibleSpan < 7 / 365.25) {
       const d = yearsAgoToDate(yearsAgo);
-      const time = d.getHours() !== 0
-        ? ` ${String(d.getHours()).padStart(2,'0')}:00`
-        : '';
+      const time = d.getHours() !== 0 ? ` ${String(d.getHours()).padStart(2,'0')}:00` : '';
       return `${MON[d.getMonth()]} ${d.getDate()}${time}`;
     }
 
-    // Sub-year: show "Mar 15" or "Mar" depending on density
+    // Sub-year: show "Mar 15" or "Mar YYYY"
     if (visibleSpan < 1) {
       const d = yearsAgoToDate(yearsAgo);
       return visibleSpan < 2 / 12
@@ -85,15 +83,22 @@ const Render = (() => {
         : `${MON[d.getMonth()]} ${d.getFullYear()}`;
     }
 
-    // Year+
+    // 1–200 years: show CE year
+    if (visibleSpan <= 200) {
+      const ceYear = CURRENT_YEAR - yearsAgo;
+      if (ceYear > 0) return Math.round(ceYear).toString();
+    }
+
+    // Wide view: always use compact relative labels so distant ticks
+    // don't show confusing CE years like "1025" next to "1 Bya".
+    if (yearsAgo >= 1_000_000_000) return `${+(yearsAgo / 1e9).toPrecision(2)} Bya`;
+    if (yearsAgo >= 1_000_000)     return `${+(yearsAgo / 1e6).toPrecision(2)} Mya`;
+    if (yearsAgo >= 10_000)        return `${+(yearsAgo / 1e3).toPrecision(2)} kya`;
+
+    // 200–10 000 years: show BCE/CE year
     const ceYear = CURRENT_YEAR - yearsAgo;
     if (ceYear > 0) return Math.round(ceYear).toString();
-
-    const bce = Math.abs(Math.round(ceYear));
-    if (bce >= 1_000_000_000) return `${(bce / 1e9).toFixed(1)}B BCE`;
-    if (bce >= 1_000_000)     return `${Math.round(bce / 1e6)}M BCE`;
-    if (bce >= 10_000)        return `${Math.round(bce / 1000)}k BCE`;
-    return `${bce} BCE`;
+    return `${Math.abs(Math.round(ceYear))} BCE`;
   }
 
   // ── Marker drop animations ────────────────────────────────────────────────────
@@ -229,48 +234,67 @@ const Render = (() => {
     ctx.lineTo(w, axisY);
     ctx.stroke();
 
-    const MIN_TICK_PX = 90;
+    const MIN_PX     = 90; // minimum screen px between tick labels
     const leftDate   = Timeline.xToDate(0);
     const rightDate  = Timeline.xToDate(w);
     const visibleSpan = Math.abs(leftDate - rightDate);
 
-    // minInterval in yearsAgo units for the current zoom level
-    const minInterval = MIN_TICK_PX * (rightDate + 1) / Timeline.zoom;
+    let tickValues = [];
 
-    // Sub-day intervals (in years): 30min, 1h, 2h, 6h, 12h
-    // Sub-year: 1d, 2d, 1w, 2w, 1mo, 3mo, 6mo
-    const NICE = [
-      1 / (365.25 * 24 * 2),   // 30 min
-      1 / (365.25 * 24),        // 1 hour
-      2 / (365.25 * 24),        // 2 hours
-      6 / (365.25 * 24),        // 6 hours
-      12 / (365.25 * 24),       // 12 hours
-      1 / 365.25,               // 1 day
-      2 / 365.25,               // 2 days
-      7 / 365.25,               // 1 week
-      14 / 365.25,              // 2 weeks
-      1 / 12,                   // ~1 month
-      1 / 4,                    // ~3 months
-      1 / 2,                    // ~6 months
-      1, 2, 5, 10, 20, 50, 100, 200, 500,
-      1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5,
-      1e6, 2e6, 5e6, 1e7, 2e7, 5e7, 1e8, 2e8, 5e8,
-      1e9, 2e9, 5e9, 1e10,
-    ];
-    const tickInterval = NICE.find(i => i >= minInterval) ?? NICE[NICE.length - 1];
+    if (visibleSpan > 200) {
+      // ── Log-space ticks ────────────────────────────────────────────────────
+      // Candidates: 1, 2, 5 × 10^n for all n. These are evenly spaced on the
+      // log scale so they spread naturally across the full timeline without
+      // clustering near the present.
+      const cands = [];
+      for (let exp = 0; exp <= 10; exp++) {
+        const base = Math.pow(10, exp);
+        for (const mult of [1, 2, 5]) {
+          const v = mult * base;
+          if (v >= rightDate && v <= leftDate) cands.push(v);
+        }
+      }
+      // Sort descending (large yearsAgo = left side of canvas first)
+      cands.sort((a, b) => b - a);
 
-    const start = Math.ceil(rightDate / tickInterval) * tickInterval;
-    const end   = Math.floor(leftDate  / tickInterval) * tickInterval;
-    if (!isFinite(start) || !isFinite(end) || end < start) return;
+      // Walk left→right, keeping only ticks with enough screen spacing
+      let lastX = -Infinity;
+      for (const v of cands) {
+        const x = Timeline.dateToX(v);
+        if (x < -20 || x > w + 20) continue;
+        if (x >= lastX + MIN_PX) {
+          tickValues.push(v);
+          lastX = x;
+        }
+      }
+    } else {
+      // ── Linear ticks for zoomed-in views (days / months / years) ──────────
+      const minInterval = MIN_PX * (rightDate + 1) / Timeline.zoom;
+      const NICE = [
+        1 / (365.25 * 24 * 2), 1 / (365.25 * 24), 2 / (365.25 * 24),
+        6 / (365.25 * 24), 12 / (365.25 * 24),
+        1 / 365.25, 2 / 365.25, 7 / 365.25, 14 / 365.25,
+        1 / 12, 1 / 4, 1 / 2,
+        1, 2, 5, 10, 20, 50, 100, 200,
+      ];
+      const tickInterval = NICE.find(i => i >= minInterval) ?? NICE[NICE.length - 1];
+      const start = Math.ceil(rightDate  / tickInterval) * tickInterval;
+      const end   = Math.floor(leftDate / tickInterval) * tickInterval;
+      if (isFinite(start) && isFinite(end) && end >= start) {
+        for (let t = start; t <= end && tickValues.length < 20; t += tickInterval) {
+          tickValues.push(t);
+        }
+      }
+    }
 
+    // ── Draw ticks and labels ──────────────────────────────────────────────
     ctx.fillStyle = DIM;
     ctx.font = '11px "Cormorant Garamond", serif';
     ctx.textAlign = 'center';
 
-    let tickCount = 0;
-    for (let t = start; t <= end && tickCount < 40; t += tickInterval, tickCount++) {
+    for (const t of tickValues) {
       const x = Timeline.dateToX(t);
-      if (x < -40 || x > w + 40) continue;
+      if (x < -20 || x > w + 20) continue;
 
       ctx.strokeStyle = 'rgba(232,150,42,0.18)';
       ctx.lineWidth = 1;
