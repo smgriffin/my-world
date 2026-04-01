@@ -257,23 +257,23 @@ const Render = (() => {
 
     let tickValues = [];
 
-    if (visibleSpan > 200) {
+    if (visibleSpan > 1.5) {
       // ── Log-space ticks ────────────────────────────────────────────────────
-      // Candidates: 1, 2, 5 × 10^n for all n. These are evenly spaced on the
-      // log scale so they spread naturally across the full timeline without
-      // clustering near the present.
+      // Used for ANY span > 1.5 years. Linear ticks fail on a log scale even
+      // for moderate spans (e.g. 50 years) because equal yearsAgo intervals
+      // map to wildly unequal screen widths near Today vs. the distant past.
+      // 1, 2, 5 × 10^n values are evenly spaced in log space, so they spread
+      // naturally without bunching near the present.
       const cands = [];
       for (let exp = 0; exp <= 10; exp++) {
         const base = Math.pow(10, exp);
         for (const mult of [1, 2, 5]) {
           const v = mult * base;
-          if (v >= rightDate && v <= leftDate) cands.push(v);
+          if (v >= Math.max(rightDate, 0.5) && v <= leftDate) cands.push(v);
         }
       }
-      // Sort descending (large yearsAgo = left side of canvas first)
-      cands.sort((a, b) => b - a);
+      cands.sort((a, b) => b - a); // left-to-right on screen
 
-      // Walk left→right, keeping only ticks with enough screen spacing
       let lastX = -Infinity;
       for (const v of cands) {
         const x = Timeline.dateToX(v);
@@ -283,15 +283,22 @@ const Render = (() => {
           lastX = x;
         }
       }
+
+      // Add "Today" if it's on screen and not too close to the last tick
+      const todayX = Timeline.dateToX(0);
+      if (todayX >= 0 && todayX <= w && todayX >= lastX + MIN_PX) {
+        tickValues.push(0);
+      }
     } else {
-      // ── Linear ticks for zoomed-in views (days / months / years) ──────────
-      const minInterval = MIN_PX * (rightDate + 1) / Timeline.zoom;
+      // ── Linear calendar ticks for zoomed-in views (hours/days/months) ─────
+      // Only correct once the span is small enough that the log≈linear
+      // approximation holds (sub-year spans near the present).
+      const minInterval = MIN_PX / (Timeline.zoom / Math.max(rightDate + 1, 1));
       const NICE = [
         1 / (365.25 * 24 * 2), 1 / (365.25 * 24), 2 / (365.25 * 24),
         6 / (365.25 * 24), 12 / (365.25 * 24),
         1 / 365.25, 2 / 365.25, 7 / 365.25, 14 / 365.25,
-        1 / 12, 1 / 4, 1 / 2,
-        1, 2, 5, 10, 20, 50, 100, 200,
+        1 / 12, 1 / 4, 1 / 2, 1,
       ];
       const tickInterval = NICE.find(i => i >= minInterval) ?? NICE[NICE.length - 1];
       const start = Math.ceil(rightDate  / tickInterval) * tickInterval;
