@@ -280,6 +280,114 @@ const Timeline = (() => {
     tick();
   }
 
+  // ── Touch events ──────────────────────────────────────────────────────────────
+  let touchMoved    = false;
+  let pinchStartDist = 0;
+  let pinchStartZoom = 0;
+  let pinchDateAtMid = 0; // date (yearsAgo) under the pinch midpoint at gesture start
+  let lastTapTime   = 0;
+  let lastTapX      = 0;
+  const DOUBLE_TAP_MS     = 280;
+  const DOUBLE_TAP_RADIUS = 30;
+
+  function touchDist(t1, t2) {
+    return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+  }
+
+  function onTouchStart(e) {
+    if (!panEnabled) return;
+    e.preventDefault();
+    if (panRaf)     { cancelAnimationFrame(panRaf);     panRaf     = null; }
+    if (dblZoomRaf) { cancelAnimationFrame(dblZoomRaf); dblZoomRaf = null; }
+
+    if (e.touches.length === 1) {
+      isDragging   = true;
+      dragMoved    = false;
+      touchMoved   = false;
+      dragStartX   = e.touches[0].clientX;
+      dragStartPan = panX;
+    } else if (e.touches.length === 2) {
+      isDragging     = false;
+      dragMoved      = false;
+      const t1 = e.touches[0], t2 = e.touches[1];
+      pinchStartDist = touchDist(t1, t2);
+      pinchStartZoom = zoom;
+      pinchDateAtMid = xToDate((t1.clientX + t2.clientX) / 2);
+    }
+  }
+
+  function onTouchMove(e) {
+    e.preventDefault();
+    if (panRaf)     { cancelAnimationFrame(panRaf);     panRaf     = null; }
+    if (dblZoomRaf) { cancelAnimationFrame(dblZoomRaf); dblZoomRaf = null; }
+
+    if (e.touches.length === 2) {
+      // Pinch-to-zoom anchored to the initial midpoint date
+      const t1 = e.touches[0], t2 = e.touches[1];
+      const dist = touchDist(t1, t2);
+      const midX = (t1.clientX + t2.clientX) / 2;
+      zoom = Math.min(MAX_ZOOM, Math.max(minZoom(), pinchStartZoom * dist / pinchStartDist));
+      const logVal = Math.log(Math.max(1, pinchDateAtMid + 1));
+      panX = (LOG_BASE - logVal) * zoom - midX;
+      clampPan();
+      dirty      = true;
+      touchMoved = true;
+    } else if (e.touches.length === 1 && isDragging) {
+      const dx = e.touches[0].clientX - dragStartX;
+      if (Math.abs(dx) > DRAG_THRESHOLD) touchMoved = true;
+      panX = dragStartPan - dx;
+      clampPan();
+      dirty = true;
+    }
+  }
+
+  function onTouchEnd(e) {
+    e.preventDefault();
+
+    // Tap detection: only fires on a clean lift with no movement
+    if (!touchMoved && e.changedTouches.length === 1) {
+      const touch = e.changedTouches[0];
+      const now   = Date.now();
+      const cx    = touch.clientX;
+      const cy    = touch.clientY;
+
+      if (now - lastTapTime < DOUBLE_TAP_MS && Math.abs(cx - lastTapX) < DOUBLE_TAP_RADIUS) {
+        // Double-tap: cancel pending single-tap, then zoom or jump home
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+        lastTapTime = 0;
+        const nowX = dateToX(0);
+        if (Math.abs(cx - nowX) < 40) {
+          setViewSpan(50);
+        } else {
+          animateZoomTo(Math.min(MAX_ZOOM, zoom * 6), cx);
+        }
+      } else {
+        // Single tap — delay so double-tap can cancel it
+        lastTapTime = now;
+        lastTapX    = cx;
+        if (onClickEntry) {
+          clickTimer = setTimeout(() => {
+            clickTimer = null;
+            onClickEntry(cx, cy, false);
+          }, 220);
+        }
+      }
+    }
+
+    // Reset drag state based on remaining fingers
+    if (e.touches.length === 0) {
+      isDragging = false;
+      touchMoved = false;
+    } else if (e.touches.length === 1) {
+      // Lifted one finger of a pinch — restart pan from here
+      isDragging   = true;
+      dragMoved    = false;
+      touchMoved   = false;
+      dragStartX   = e.touches[0].clientX;
+      dragStartPan = panX;
+    }
+  }
+
   // ── Attach events ─────────────────────────────────────────────────────────────
   function attach(canvas, clickHandler) {
     onClickEntry = clickHandler || null;
@@ -288,6 +396,10 @@ const Timeline = (() => {
     window.addEventListener('mouseup', onMouseUp);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('dblclick', onDblClick);
+    // Touch
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   onTouchEnd,   { passive: false });
   }
 
   // ── Zone (for background) ─────────────────────────────────────────────────────
